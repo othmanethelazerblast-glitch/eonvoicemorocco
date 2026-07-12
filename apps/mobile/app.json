@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "Facturation Conforme",
+    "slug": "facturation-conforme",
+    "scheme": "facturationconforme",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.facturationconforme.app"
+    },
+    "android": {
+      "package": "com.facturationconforme.app"
+    },
+    "plugins": ["expo-router", "expo-secure-store"]
+  }
+}

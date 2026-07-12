@@ -1,0 +1,20 @@
+{
+  "name": "@app/pdf-generator",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "pdfkit": "^0.15.1"
+  },
+  "devDependencies": {
+    "@app/config": "workspace:*",
+    "@types/pdfkit": "^0.13.9",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

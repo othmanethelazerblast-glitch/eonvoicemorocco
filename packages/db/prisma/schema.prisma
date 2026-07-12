@@ -1,0 +1,316 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Organization / tenancy
+// ---------------------------------------------------------------------------
+
+/// SaaS billing subscriber. An accounting firm's Organization has N Companies;
+/// a directly-signed-up SME's Organization has exactly 1. Same model either way.
+model Organization {
+  id         String   @id @default(uuid())
+  clerkOrgId String   @unique
+  name       String
+  createdAt  DateTime @default(now())
+
+  companies   Company[]
+  memberships Membership[]
+
+  @@map("organizations")
+}
+
+model User {
+  id          String   @id @default(uuid())
+  clerkUserId String   @unique
+  email       String
+  createdAt   DateTime @default(now())
+
+  memberships    Membership[]
+  companyAccess  CompanyAccess[]
+
+  @@map("users")
+}
+
+enum OrgRole {
+  owner
+  admin
+  accountant
+  bookkeeper
+  viewer
+}
+
+/// User <-> Organization join with an org-level role.
+model Membership {
+  id             String   @id @default(uuid())
+  organizationId String
+  userId         String
+  role           OrgRole
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@map("memberships")
+}
+
+/// Fine-grained per-company grant for firm staff who only handle a subset of
+/// the org's client companies. Owner/admin roles implicitly see all companies
+/// (enforced in the application query layer, not via rows in this table).
+model CompanyAccess {
+  id        String   @id @default(uuid())
+  userId    String
+  companyId String
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, companyId])
+  @@map("company_access")
+}
+
+// ---------------------------------------------------------------------------
+// Company / Client / Product
+// ---------------------------------------------------------------------------
+
+enum ClearanceMode {
+  none
+  stubbed
+  live
+}
+
+/// The invoice-issuing legal entity. Maps to UBL AccountingSupplierParty.
+model Company {
+  id             String        @id @default(uuid())
+  organizationId String
+  name           String
+  ice            String?
+  identifiantFiscal String?
+  registreCommerce  String?
+  patente           String?
+  addressLine1   String
+  addressLine2   String?
+  city           String
+  postalCode     String?
+  country        String        @default("MA")
+  defaultCurrency String       @default("MAD")
+  /// Drives whether/when this company's invoices attempt real DGI clearance,
+  /// matching the phased rollout (large 2026, mid 2026, SME/micro 2027).
+  clearanceMode  ClearanceMode @default(stubbed)
+  createdAt      DateTime      @default(now())
+
+  organization  Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  companyAccess CompanyAccess[]
+  clients       Client[]
+  products      Product[]
+  invoices      Invoice[]
+
+  @@index([organizationId])
+  @@map("companies")
+}
+
+/// The invoice recipient. Maps to UBL AccountingCustomerParty.
+model Client {
+  id             String   @id @default(uuid())
+  companyId      String
+  name           String
+  ice            String?
+  identifiantFiscal String?
+  registreCommerce  String?
+  patente           String?
+  addressLine1   String
+  addressLine2   String?
+  city           String
+  postalCode     String?
+  country        String   @default("MA")
+  email          String?
+  createdAt      DateTime @default(now())
+
+  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invoices Invoice[]
+
+  @@index([companyId])
+  @@map("clients")
+}
+
+/// Catalog entry. Maps to UBL Item + TaxCategory. tvaRate stored as Decimal
+/// string-safe (e.g. 0.20) to avoid float rounding on tax-sensitive data.
+model Product {
+  id               String   @id @default(uuid())
+  companyId        String
+  name             String
+  unit             String   @default("unite")
+  defaultUnitPrice Decimal  @db.Decimal(12, 2)
+  currency         String   @default("MAD")
+  tvaRate          Decimal  @db.Decimal(4, 2)
+  createdAt        DateTime @default(now())
+
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invoiceLines InvoiceLine[]
+
+  @@index([companyId])
+  @@map("products")
+}
+
+// ---------------------------------------------------------------------------
+// Invoice
+// ---------------------------------------------------------------------------
+
+enum InvoiceStatus {
+  draft
+  issued
+  submitted
+  cleared
+  rejected
+  void
+}
+
+/// Invoice header. Maps to UBL Invoice + LegalMonetaryTotal + TaxTotal.
+/// Never deleted (DELETE privilege revoked at the DB role level — see
+/// prisma/rls.sql) to satisfy Morocco's ~10-year retention requirement;
+/// corrections happen via a linked credit note (correctsInvoiceId), not
+/// deletion or in-place edits once issued.
+model Invoice {
+  id               String        @id @default(uuid())
+  companyId        String
+  clientId         String
+  /// Sequential per-company, assigned atomically at issue time (see
+  /// apps/api invoice-numbering service) and immutable thereafter.
+  invoiceNumber    String?
+  status           InvoiceStatus @default(draft)
+  currency         String        @default("MAD")
+  issueDate        DateTime?
+  totalExclTax     Decimal       @db.Decimal(12, 2) @default(0)
+  totalTax         Decimal       @db.Decimal(12, 2) @default(0)
+  totalInclTax     Decimal       @db.Decimal(12, 2) @default(0)
+  /// SHA-256 of (canonical invoice payload + previousInvoiceHash), per
+  /// company. Added now — retrofitting a hash chain onto historical data
+  /// later is not realistic.
+  hash             String?
+  previousInvoiceHash String?
+  /// Set only for credit notes: the invoice this one corrects/voids.
+  correctsInvoiceId String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  client  Client  @relation(fields: [clientId], references: [id], onDelete: Restrict)
+
+  correctsInvoice   Invoice?  @relation("InvoiceCorrections", fields: [correctsInvoiceId], references: [id])
+  correctedByInvoices Invoice[] @relation("InvoiceCorrections")
+
+  lines          InvoiceLine[]
+  documents      InvoiceDocument[]
+  statusHistory  InvoiceStatusHistory[]
+  dgiSubmissions DgiSubmission[]
+
+  @@unique([companyId, invoiceNumber])
+  @@index([companyId, status])
+  @@map("invoices")
+}
+
+/// Maps to UBL InvoiceLine.
+model InvoiceLine {
+  id                String  @id @default(uuid())
+  invoiceId         String
+  productId         String?
+  description       String
+  quantity          Decimal @db.Decimal(12, 3)
+  unitPrice         Decimal @db.Decimal(12, 2)
+  tvaRate           Decimal @db.Decimal(4, 2)
+  lineTotalExclTax  Decimal @db.Decimal(12, 2)
+
+  invoice Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id])
+
+  @@index([invoiceId])
+  @@map("invoice_lines")
+}
+
+enum InvoiceDocumentKind {
+  pdf
+  ubl_xml
+  cii_xml
+  dgi_receipt
+}
+
+/// Generated artifact for an invoice (PDF, UBL/CII XML, DGI receipt).
+/// Append-only — a re-generated PDF adds a new version row, it never
+/// overwrites or replaces the previous one. storageKey points at the
+/// object-storage bucket (Supabase Storage today), never the DB itself.
+model InvoiceDocument {
+  id         String              @id @default(uuid())
+  invoiceId  String
+  kind       InvoiceDocumentKind
+  storageKey String
+  sha256     String
+  version    Int
+  createdAt  DateTime            @default(now())
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@unique([invoiceId, kind, version])
+  @@map("invoice_documents")
+}
+
+/// Append-only audit trail of every status transition. No updates/deletes —
+/// this table plus InvoiceDocument versioning is what makes the invoice
+/// history reconstructable and tamper-evident over the retention window.
+model InvoiceStatusHistory {
+  id        String        @id @default(uuid())
+  invoiceId String
+  fromStatus InvoiceStatus?
+  toStatus  InvoiceStatus
+  actorUserId String?
+  note      String?
+  createdAt DateTime      @default(now())
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("invoice_status_history")
+}
+
+// ---------------------------------------------------------------------------
+// DGI clearance abstraction
+// ---------------------------------------------------------------------------
+
+enum DgiProvider {
+  stub
+  xhub
+}
+
+enum DgiSubmissionStatus {
+  pending
+  accepted
+  rejected
+  error
+}
+
+/// The explicit swap point for real DGI/XHub integration once its API and CSP
+/// accreditation process are published. provider is "stub" for the entire
+/// MVP — see packages/dgi-clearance for the code-level interface this table
+/// backs.
+model DgiSubmission {
+  id              String              @id @default(uuid())
+  invoiceId       String
+  provider        DgiProvider         @default(stub)
+  status          DgiSubmissionStatus @default(pending)
+  requestPayload  Json?
+  responsePayload Json?
+  errorDetail     String?
+  createdAt       DateTime            @default(now())
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+  @@map("dgi_submissions")
+}

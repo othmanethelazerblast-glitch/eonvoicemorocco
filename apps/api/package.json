@@ -1,0 +1,30 @@
+{
+  "name": "@app/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch --env-file=.env src/index.ts",
+    "build": "tsc",
+    "start": "node --env-file=.env dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@app/db": "workspace:*",
+    "@app/dgi-clearance": "workspace:*",
+    "@app/pdf-generator": "workspace:*",
+    "@app/shared-types": "workspace:*",
+    "@app/ubl-generator": "workspace:*",
+    "@clerk/backend": "^1.21.0",
+    "@fastify/cors": "^10.0.1",
+    "@supabase/supabase-js": "^2.47.10",
+    "@trpc/server": "^11.0.0-rc.638",
+    "fastify": "^5.2.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@app/config": "workspace:*",
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
