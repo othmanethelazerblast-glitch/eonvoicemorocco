@@ -8,35 +8,63 @@ import { Input, Label } from "@/components/ui/Input";
 
 type InputChange = ChangeEvent<HTMLInputElement>;
 
-export function ClientForm({ companyId, onCreated }: { companyId: string; onCreated?: () => void }) {
+interface ClientInitial {
+  id: string;
+  name: string;
+  ice: string | null;
+  addressLine1: string;
+  city: string;
+  email: string | null;
+}
+
+export function ClientForm({
+  companyId,
+  initial,
+  onSaved,
+}: {
+  companyId: string;
+  initial?: ClientInitial;
+  onSaved?: () => void;
+}) {
   const utils = trpc.useUtils();
   const createClient = trpc.clients.create.useMutation({
     onSuccess: async () => {
       await utils.clients.listByCompany.invalidate({ companyId });
-      onCreated?.();
+      onSaved?.();
     },
   });
+  const updateClient = trpc.clients.update.useMutation({
+    onSuccess: async () => {
+      await utils.clients.listByCompany.invalidate({ companyId });
+      onSaved?.();
+    },
+  });
+  const mutation = initial ? updateClient : createClient;
 
-  const [name, setName] = useState("");
-  const [ice, setIce] = useState("");
-  const [line1, setLine1] = useState("");
-  const [city, setCity] = useState("");
-  const [email, setEmail] = useState("");
+  const [name, setName] = useState(initial?.name ?? "");
+  const [ice, setIce] = useState(initial?.ice ?? "");
+  const [line1, setLine1] = useState(initial?.addressLine1 ?? "");
+  const [city, setCity] = useState(initial?.city ?? "");
+  const [email, setEmail] = useState(initial?.email ?? "");
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    createClient.mutate({
-      companyId,
+    const payload = {
       name,
       identifiers: { ice: ice || undefined },
-      address: { line1, city, country: "MA" },
+      address: { line1, city, country: "MA" as const },
       email: email || undefined,
-    });
+    };
+    if (initial) {
+      updateClient.mutate({ id: initial.id, ...payload });
+    } else {
+      createClient.mutate({ companyId, ...payload });
+    }
   }
 
   return (
     <Card className="bg-slate-50/60 dark:bg-slate-800/40">
-      <CardHeader title="Ajouter un client" />
+      <CardHeader title={initial ? "Modifier le client" : "Ajouter un client"} />
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <div>
           <Label>Nom du client</Label>
@@ -60,12 +88,10 @@ export function ClientForm({ companyId, onCreated }: { companyId: string; onCrea
           <Label>Email (optionnel)</Label>
           <Input type="email" value={email} onChange={(e: InputChange) => setEmail(e.target.value)} />
         </div>
-        <Button type="submit" disabled={createClient.isPending} className="self-start">
-          {createClient.isPending ? "Creation..." : "Ajouter"}
+        <Button type="submit" disabled={mutation.isPending} className="self-start">
+          {mutation.isPending ? "Enregistrement..." : initial ? "Enregistrer" : "Ajouter"}
         </Button>
-        {createClient.isError && (
-          <p className="text-sm text-rose-600 dark:text-rose-400">{createClient.error.message}</p>
-        )}
+        {mutation.isError && <p className="text-sm text-rose-600 dark:text-rose-400">{mutation.error.message}</p>}
       </form>
     </Card>
   );

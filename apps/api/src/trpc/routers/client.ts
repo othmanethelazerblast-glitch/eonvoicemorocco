@@ -1,21 +1,8 @@
-import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { partyIdentifiersSchema, addressSchema } from "@app/shared-types";
+import { clientInput } from "@app/shared-types";
 import { protectedProcedure, router } from "../trpc";
-
-const createClientInput = z.object({
-  companyId: z.string().uuid(),
-  name: z.string().min(1),
-  identifiers: partyIdentifiersSchema,
-  address: addressSchema,
-  email: z.string().email().optional(),
-});
-
-function assertCompanyAccess(ctx: { companyIds: string[] }, companyId: string) {
-  if (!ctx.companyIds.includes(companyId)) {
-    throw new TRPCError({ code: "FORBIDDEN" });
-  }
-}
+import { assertCompanyAccess } from "../access";
+import { deleteOrFriendlyConflict } from "../errors";
 
 export const clientRouter = router({
   listByCompany: protectedProcedure
@@ -28,7 +15,7 @@ export const clientRouter = router({
       });
     }),
 
-  create: protectedProcedure.input(createClientInput).mutation(({ ctx, input }) => {
+  create: protectedProcedure.input(clientInput).mutation(({ ctx, input }) => {
     assertCompanyAccess(ctx, input.companyId);
     return ctx.prisma.client.create({
       data: {
@@ -46,5 +33,41 @@ export const clientRouter = router({
         email: input.email,
       },
     });
+  }),
+
+  update: protectedProcedure
+    .input(clientInput.omit({ companyId: true }).partial().extend({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.prisma.client.findUniqueOrThrow({ where: { id: input.id } });
+      assertCompanyAccess(ctx, existing.companyId);
+      const { id, identifiers, address, ...rest } = input;
+      return ctx.prisma.client.update({
+        where: { id },
+        data: {
+          ...rest,
+          ...(identifiers && {
+            ice: identifiers.ice,
+            identifiantFiscal: identifiers.identifiantFiscal,
+            registreCommerce: identifiers.registreCommerce,
+            patente: identifiers.patente,
+          }),
+          ...(address && {
+            addressLine1: address.line1,
+            addressLine2: address.line2,
+            city: address.city,
+            postalCode: address.postalCode,
+            country: address.country,
+          }),
+        },
+      });
+    }),
+
+  delete: protectedProcedure.input(z.object({ id: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+    const existing = await ctx.prisma.client.findUniqueOrThrow({ where: { id: input.id } });
+    assertCompanyAccess(ctx, existing.companyId);
+    return deleteOrFriendlyConflict(
+      () => ctx.prisma.client.delete({ where: { id: input.id } }),
+      "Impossible de supprimer un client qui a des factures.",
+    );
   }),
 });

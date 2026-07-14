@@ -1,25 +1,7 @@
-import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { TVA_RATES } from "@app/shared-types";
+import { productInput } from "@app/shared-types";
 import { protectedProcedure, router } from "../trpc";
-
-const tvaRateInput = z.number().refine((v) => (TVA_RATES as readonly number[]).includes(v), {
-  message: "Taux de TVA invalide",
-});
-
-const createProductInput = z.object({
-  companyId: z.string().uuid(),
-  name: z.string().min(1),
-  unit: z.string().default("unite"),
-  defaultUnitPrice: z.number().nonnegative(),
-  tvaRate: tvaRateInput,
-});
-
-function assertCompanyAccess(ctx: { companyIds: string[] }, companyId: string) {
-  if (!ctx.companyIds.includes(companyId)) {
-    throw new TRPCError({ code: "FORBIDDEN" });
-  }
-}
+import { assertCompanyAccess } from "../access";
 
 export const productRouter = router({
   listByCompany: protectedProcedure
@@ -32,7 +14,7 @@ export const productRouter = router({
       });
     }),
 
-  create: protectedProcedure.input(createProductInput).mutation(({ ctx, input }) => {
+  create: protectedProcedure.input(productInput).mutation(({ ctx, input }) => {
     assertCompanyAccess(ctx, input.companyId);
     return ctx.prisma.product.create({
       data: {
@@ -43,5 +25,20 @@ export const productRouter = router({
         tvaRate: input.tvaRate,
       },
     });
+  }),
+
+  update: protectedProcedure
+    .input(productInput.omit({ companyId: true }).partial().extend({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const existing = await ctx.prisma.product.findUniqueOrThrow({ where: { id: input.id } });
+      assertCompanyAccess(ctx, existing.companyId);
+      const { id, ...rest } = input;
+      return ctx.prisma.product.update({ where: { id }, data: rest });
+    }),
+
+  delete: protectedProcedure.input(z.object({ id: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+    const existing = await ctx.prisma.product.findUniqueOrThrow({ where: { id: input.id } });
+    assertCompanyAccess(ctx, existing.companyId);
+    return ctx.prisma.product.delete({ where: { id: input.id } });
   }),
 });

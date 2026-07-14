@@ -9,34 +9,63 @@ import { Input, Label, Select } from "@/components/ui/Input";
 type InputChange = ChangeEvent<HTMLInputElement>;
 const TVA_OPTIONS = [0.2, 0.14, 0.1, 0.07, 0];
 
-export function ProductForm({ companyId, onCreated }: { companyId: string; onCreated?: () => void }) {
+interface ProductInitial {
+  id: string;
+  name: string;
+  unit: string;
+  defaultUnitPrice: number | string;
+  tvaRate: number | string;
+}
+
+export function ProductForm({
+  companyId,
+  initial,
+  onSaved,
+}: {
+  companyId: string;
+  initial?: ProductInitial;
+  onSaved?: () => void;
+}) {
   const utils = trpc.useUtils();
   const createProduct = trpc.products.create.useMutation({
     onSuccess: async () => {
       await utils.products.listByCompany.invalidate({ companyId });
-      onCreated?.();
+      onSaved?.();
     },
   });
+  const updateProduct = trpc.products.update.useMutation({
+    onSuccess: async () => {
+      await utils.products.listByCompany.invalidate({ companyId });
+      onSaved?.();
+    },
+  });
+  const mutation = initial ? updateProduct : createProduct;
 
-  const [name, setName] = useState("");
-  const [unit, setUnit] = useState("unite");
-  const [defaultUnitPrice, setDefaultUnitPrice] = useState("");
-  const [tvaRate, setTvaRate] = useState(0.2);
+  const [name, setName] = useState(initial?.name ?? "");
+  const [unit, setUnit] = useState(initial?.unit ?? "unite");
+  const [defaultUnitPrice, setDefaultUnitPrice] = useState(
+    initial ? String(initial.defaultUnitPrice) : "",
+  );
+  const [tvaRate, setTvaRate] = useState(initial ? Number(initial.tvaRate) : 0.2);
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    createProduct.mutate({
-      companyId,
+    const payload = {
       name,
       unit,
       defaultUnitPrice: Number(defaultUnitPrice),
       tvaRate,
-    });
+    };
+    if (initial) {
+      updateProduct.mutate({ id: initial.id, ...payload });
+    } else {
+      createProduct.mutate({ companyId, ...payload });
+    }
   }
 
   return (
     <Card className="bg-slate-50/60 dark:bg-slate-800/40">
-      <CardHeader title="Ajouter un produit / service" />
+      <CardHeader title={initial ? "Modifier le produit / service" : "Ajouter un produit / service"} />
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <div>
           <Label>Nom du produit ou service</Label>
@@ -69,12 +98,10 @@ export function ProductForm({ companyId, onCreated }: { companyId: string; onCre
             </Select>
           </div>
         </div>
-        <Button type="submit" disabled={createProduct.isPending} className="self-start">
-          {createProduct.isPending ? "Creation..." : "Ajouter"}
+        <Button type="submit" disabled={mutation.isPending} className="self-start">
+          {mutation.isPending ? "Enregistrement..." : initial ? "Enregistrer" : "Ajouter"}
         </Button>
-        {createProduct.isError && (
-          <p className="text-sm text-rose-600 dark:text-rose-400">{createProduct.error.message}</p>
-        )}
+        {mutation.isError && <p className="text-sm text-rose-600 dark:text-rose-400">{mutation.error.message}</p>}
       </form>
     </Card>
   );

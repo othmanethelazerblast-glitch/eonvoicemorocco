@@ -1,13 +1,8 @@
 import { z } from "zod";
-import { partyIdentifiersSchema, addressSchema, currencySchema } from "@app/shared-types";
+import { companyInput } from "@app/shared-types";
 import { protectedProcedure, router } from "../trpc";
-
-const createCompanyInput = z.object({
-  name: z.string().min(1),
-  identifiers: partyIdentifiersSchema,
-  address: addressSchema,
-  defaultCurrency: currencySchema,
-});
+import { assertCompanyAccess } from "../access";
+import { deleteOrFriendlyConflict } from "../errors";
 
 export const companyRouter = router({
   list: protectedProcedure.query(({ ctx }) => {
@@ -22,7 +17,7 @@ export const companyRouter = router({
    * would immediately 403 on every query for the company they just created,
    * since companyIds for non-owner/admin roles comes only from CompanyAccess.
    */
-  create: protectedProcedure.input(createCompanyInput).mutation(async ({ ctx, input }) => {
+  create: protectedProcedure.input(companyInput).mutation(async ({ ctx, input }) => {
     return ctx.prisma.$transaction(async (tx) => {
       const company = await tx.company.create({
         data: {
@@ -45,5 +40,39 @@ export const companyRouter = router({
       });
       return company;
     });
+  }),
+
+  update: protectedProcedure
+    .input(companyInput.partial().extend({ id: z.string().uuid() }))
+    .mutation(({ ctx, input }) => {
+      assertCompanyAccess(ctx, input.id);
+      const { id, identifiers, address, ...rest } = input;
+      return ctx.prisma.company.update({
+        where: { id },
+        data: {
+          ...rest,
+          ...(identifiers && {
+            ice: identifiers.ice,
+            identifiantFiscal: identifiers.identifiantFiscal,
+            registreCommerce: identifiers.registreCommerce,
+            patente: identifiers.patente,
+          }),
+          ...(address && {
+            addressLine1: address.line1,
+            addressLine2: address.line2,
+            city: address.city,
+            postalCode: address.postalCode,
+            country: address.country,
+          }),
+        },
+      });
+    }),
+
+  delete: protectedProcedure.input(z.object({ id: z.string().uuid() })).mutation(({ ctx, input }) => {
+    assertCompanyAccess(ctx, input.id);
+    return deleteOrFriendlyConflict(
+      () => ctx.prisma.company.delete({ where: { id: input.id } }),
+      "Impossible de supprimer une societe qui a des factures.",
+    );
   }),
 });

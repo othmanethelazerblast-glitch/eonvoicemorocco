@@ -4,3 +4,4 @@ export * from "./party";
 export * from "./product";
 export * from "./invoice";
 export * from "./dgi";
+export * from "./inputs";

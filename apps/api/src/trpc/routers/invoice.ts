@@ -7,6 +7,7 @@ import { generateInvoicePdf } from "@app/pdf-generator";
 import type { UblInvoiceInput } from "@app/shared-types";
 import { generateUblInvoiceXml } from "@app/ubl-generator";
 import { protectedProcedure, router } from "../trpc";
+import { assertCompanyAccess } from "../access";
 import { uploadInvoiceDocument } from "../../storage";
 
 const createInvoiceInput = z.object({
@@ -24,12 +25,6 @@ const createInvoiceInput = z.object({
     )
     .min(1),
 });
-
-function assertCompanyAccess(ctx: { companyIds: string[] }, companyId: string) {
-  if (!ctx.companyIds.includes(companyId)) {
-    throw new TRPCError({ code: "FORBIDDEN" });
-  }
-}
 
 interface PartyRow {
   name: string;
