@@ -34,3 +34,15 @@ export const productInput = z.object({
   tvaRate: tvaRateInput,
 });
 export type ProductInput = z.infer<typeof productInput>;
+
+export const prospectInviteCreateInput = z.object({
+  email: z.string().email(),
+  contactName: z.string().min(1).optional(),
+});
+export type ProspectInviteCreateInput = z.infer<typeof prospectInviteCreateInput>;
+
+/** What a prospect fills in on the public onboarding form — same shape as
+ * companyInput, reused rather than redefined, since it becomes a Company
+ * as-is once a staff member approves it. */
+export const prospectSubmissionInput = companyInput;
+export type ProspectSubmissionInput = z.infer<typeof prospectSubmissionInput>;

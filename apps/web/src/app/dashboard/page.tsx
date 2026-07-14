@@ -10,6 +10,7 @@ import { ClientList } from "@/components/ClientList";
 import { ProductList } from "@/components/ProductList";
 import { InvoiceList } from "@/components/InvoiceList";
 import { DashboardStats } from "@/components/DashboardStats";
+import { ProspectInviteList } from "@/components/ProspectInviteList";
 
 const TABS = [
   { id: "invoices", label: "Factures", icon: <FileText className="h-3.5 w-3.5" /> },
@@ -60,6 +61,8 @@ function Dashboard() {
       <CompanyList activeCompanyId={activeCompanyId} onSelect={setActiveCompanyId} />
 
       {activeCompanyId && <CompanyWorkspace companyId={activeCompanyId} />}
+
+      <ProspectInviteList />
     </div>
   );
 }
