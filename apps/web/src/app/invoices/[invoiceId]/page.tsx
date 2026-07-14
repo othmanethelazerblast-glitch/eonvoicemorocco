@@ -66,7 +66,7 @@ export default function InvoiceDetailPage() {
       </SignedOut>
       <SignedIn>
         <Link
-          href="/"
+          href="/dashboard"
           className="mb-6 inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
         >
           <ArrowLeft className="h-3.5 w-3.5" />

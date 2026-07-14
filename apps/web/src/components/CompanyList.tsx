@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { Building2, Plus } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/Button";
+import { Modal } from "@/components/ui/Modal";
 import { CompanyForm } from "./CompanyForm";
 
 export function CompanyList({
@@ -33,27 +34,31 @@ export function CompanyList({
           <button
             key={company.id}
             onClick={() => onSelect(company.id)}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+            className={`inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
               activeCompanyId === company.id
                 ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900"
                 : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
             }`}
           >
+            <Building2 className="h-3.5 w-3.5 opacity-60" />
             {company.name}
           </button>
         ))}
-        <Button variant="outline-dashed" size="sm" onClick={() => setShowForm((v) => !v)}>
+        <Button variant="outline-dashed" size="sm" onClick={() => setShowForm(true)}>
           <Plus className="h-3.5 w-3.5" />
           Ajouter une societe
         </Button>
       </div>
       {showForm && (
-        <CompanyForm
-          onCreated={(companyId) => {
-            setShowForm(false);
-            onSelect(companyId);
-          }}
-        />
+        <Modal title="Ajouter une societe" onClose={() => setShowForm(false)}>
+          <CompanyForm
+            bare
+            onCreated={(companyId) => {
+              setShowForm(false);
+              onSelect(companyId);
+            }}
+          />
+        </Modal>
       )}
     </div>
   );
