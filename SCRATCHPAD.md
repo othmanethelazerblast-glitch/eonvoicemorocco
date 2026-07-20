@@ -71,10 +71,18 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
   gates the staff panel itself (owner/admin only).
 - **Mobile app**: one screen, no real CRUD yet.
 - **No CI/deploy pipeline**: `infra/` is empty.
-- **RLS backstop** (`packages/db/prisma/rls.sql`) isn't wired in yet — needs
-  a dedicated non-owner `app_user` Postgres role (table owners bypass RLS by
-  default). App-layer scoping (`assertCompanyAccess`) is the only
-  enforcement today.
+- **RLS backstop**: `app_user` Postgres role created (grants applied,
+  DELETE revoked on legally-retained tables) and `rls.sql` policies are
+  live on the real DB — verified directly (app_user sees 0 rows with no
+  `app.current_company_ids` set, exactly the right row once set). Zero
+  effect on the running app so far since it still connects as the table
+  owner (bypasses RLS). **Not yet cut over**: switching `DATABASE_URL` to
+  `app_user` requires every Prisma call to run inside a per-request
+  transaction that does `SET LOCAL app.current_company_ids` first — a real
+  request-lifecycle change, not a config flip. Deliberately paused before
+  that step: an incompletely-wired path wouldn't error, it'd silently
+  return empty results in prod. App-layer scoping (`assertCompanyAccess`)
+  remains the actual enforcement until this is finished.
 
 ## Environment / running locally
 
@@ -104,9 +112,11 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
 
 ## Next candidate work (not started)
 
-- Wire the RLS backstop (`packages/db/prisma/rls.sql`): needs a dedicated
-  non-owner `app_user` Postgres role + `SET LOCAL app.current_company_ids`
-  per request.
+- Finish the RLS cutover: wrap request handling so `ctx.prisma` runs inside
+  a per-request transaction with `SET LOCAL app.current_company_ids` set
+  first, then switch `DATABASE_URL`/`DIRECT_URL` to `app_user`. Explicitly
+  paused pending a deliberate go/no-go, not a "todo" — see the gaps section
+  above for why.
 - Mobile app real CRUD (currently one shell screen).
 - CI pipeline (`infra/` is empty).
 - Real Resend account/API key/verified domain to actually send the mail
