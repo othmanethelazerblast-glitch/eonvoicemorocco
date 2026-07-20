@@ -78,7 +78,14 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
   adding it to `apps/mobile/package.json`. Still missing: client/product
   create-in-app (currently manage those from the web dashboard), edit/delete
   from mobile, DGI submission trigger from mobile.
-- **No CI/deploy pipeline**: `infra/` is empty.
+- **CI**: `.github/workflows/ci.yml` — `typecheck` job (install, `prisma
+  generate` against a dummy `DATABASE_URL` — generate never needs a real
+  connection, only migrate/studio do — then `pnpm -r typecheck`) is the real
+  merge gate and needs zero secrets. A second `build` job runs `api`/`web`
+  builds but needs `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` /
+  `CLERK_SECRET_KEY` / `NEXT_PUBLIC_API_URL` added as GitHub Actions
+  secrets first (repo Settings > Secrets > Actions) — it'll fail until
+  those exist. **No deploy step yet** — `infra/` is still empty.
 - **RLS backstop**: `app_user` Postgres role created (grants applied,
   DELETE revoked on legally-retained tables) and `rls.sql` policies are
   live on the real DB — verified directly (app_user sees 0 rows with no
@@ -125,6 +132,8 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
   first, then switch `DATABASE_URL`/`DIRECT_URL` to `app_user`. Explicitly
   paused pending a deliberate go/no-go, not a "todo" — see the gaps section
   above for why.
-- CI pipeline (`infra/` is empty).
+- Add the three Clerk/API secrets to GitHub Actions so the CI `build` job
+  actually passes (currently only `typecheck` is guaranteed green).
+- Deploy step/target (`infra/` is empty) — CI only verifies, doesn't ship.
 - Real Resend account/API key/verified domain to actually send the mail
   that `ResendMailProvider` is already wired up to send.
