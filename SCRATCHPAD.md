@@ -55,19 +55,33 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
   doesn't exist, but `EfactClearanceProvider` now integrates with efact.ma —
   a real third-party clearance middleware whose sandbox runs invoices
   through an actual UBL 2.1 + XAdES signing pipeline (only the final DGI
-  callback is simulated on their end). Verified against the real
-  `api.efact.ma` endpoint (clean, correctly-parsed 401 on a fake key).
+  callback is simulated on their end). **Verified fully end-to-end** on
+  2026-07-20: a real test invoice went through `api.efact.ma` and came back
+  `ACCEPTED` with a (mock) `dgiReference`, QR payload, and timestamps —
+  our polling logic (SIGNED -> TRANSMITTED -> ACCEPTED, ~7s) and result
+  mapping both work against the live sandbox, not just typecheck. Getting
+  here needed two account-side steps on efact's dashboard (not our code):
+  an `EFACT_SECRET_KEY` (no self-serve signup shown in their docs — got one
+  directly from them) and a signing certificate uploaded per-organization
+  (their API returns `422 SIGNATURE_CERTIFICATE_MISSING` without one). The
+  real cert path is a **Barid eSign Class 3 qualified certificate**
+  (Morocco's only state-approved CA, Law 43-20 — online.baridesign.ma,
+  requires in-person pickup); for sandbox testing a self-signed PKCS#12
+  works fine instead (generated locally via `openssl req -x509 ...` +
+  `openssl pkcs12 -export`, uploaded through efact's dashboard) — that's
+  what's actually configured right now, **not** a real qualified cert, so
+  this is sandbox-only and not a path to production submissions as-is.
   Gated per-company: only fires when a company's `clearanceMode` is `"live"`
-  *and* `DGI_CLEARANCE_PROVIDER=efact` + `EFACT_SECRET_KEY` are set — every
-  company defaulting to `clearanceMode: stubbed` is completely unaffected.
-  **Still needs**: a real `EFACT_SECRET_KEY` (efact.ma doesn't show a
-  self-serve signup in their docs — get one directly from them) and, later,
-  a real `paymentMethod` field on `Invoice` (currently hardcoded
-  `"BANK_TRANSFER"` since we don't collect it — fine for sandbox, not for
-  real submissions). efact is middleware, not DGI itself, and not yet an
-  accredited CSP (DGI hasn't published that accreditation process) — the
-  `DgiClearanceProvider` interface is what keeps switching to DGI directly,
-  or another CSP, a new provider class instead of a rewrite.
+  *and* `DGI_CLEARANCE_PROVIDER=efact` + `EFACT_SECRET_KEY` are set (both
+  set in `apps/api/.env` now) — every company defaulting to
+  `clearanceMode: stubbed` is completely unaffected. **Still needs**: a real
+  `paymentMethod` field on `Invoice` (currently hardcoded `"BANK_TRANSFER"`
+  since we don't collect it — fine for sandbox, not for real submissions),
+  and eventually a real Barid eSign cert once actually going to production.
+  efact is middleware, not DGI itself, and not yet an accredited CSP (DGI
+  hasn't published that accreditation process) — the `DgiClearanceProvider`
+  interface is what keeps switching to DGI directly, or another CSP, a new
+  provider class instead of a rewrite.
 - **Email** (`packages/mailer`): `ResendMailProvider` now exists and is
   verified against Resend's real API (confirmed via a 401-on-fake-key smoke
   test — the HTTP call shape is correct). Selected via `MAIL_PROVIDER=resend`
