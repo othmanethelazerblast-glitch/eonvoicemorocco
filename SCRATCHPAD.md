@@ -106,6 +106,21 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
   adding it to `apps/mobile/package.json`. Still missing: client/product
   create-in-app (currently manage those from the web dashboard), edit/delete
   from mobile, DGI submission trigger from mobile.
+- **UI/UX design debt (flagged 2026-07-20, fix deferred)**: user is bringing
+  in Figma/Claude design work separately to address this properly — don't
+  redesign ahead of that, just tracking so it's not lost. Landing page and
+  general layout feel unpolished; most pages (`dashboard`, header) are
+  `max-w-5xl mx-auto` — centered, not using available width well, worth
+  reconsidering once real design direction exists. Client/Company/Product
+  management UX (flat lists with edit/delete icons) may not hold up once an
+  org has many clients — needs real UX thinking for scale (search/filter,
+  pagination, bulk actions?), not just more of the same pattern. One actual
+  bug already fixed: Clerk widgets (`OrganizationSwitcher`/`UserButton`)
+  had no `appearance` config, so they stayed light-themed while the rest of
+  the app follows OS dark mode (Tailwind `media` strategy) — unreadable
+  dark-on-dark in dark mode. Fixed in `apps/web/src/app/providers.tsx` via
+  `@clerk/themes`' `dark` theme, toggled by a `matchMedia` listener that
+  mirrors the same `prefers-color-scheme` signal Tailwind uses.
 - **CI**: `.github/workflows/ci.yml` — `typecheck` job (install, `prisma
   generate` against a dummy `DATABASE_URL` — generate never needs a real
   connection, only migrate/studio do — then `pnpm -r typecheck`) is the real
