@@ -22,7 +22,7 @@ Postgres), `packages/dgi-clearance`, `packages/pdf-generator`,
 
 Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
 
-## What's built (as of 2026-07-14/15)
+## What's built (as of 2026-07-20)
 
 - Invoicing core: draft → issue → submit to DGI (stubbed) → PDF/UBL XML →
   credit notes. SHA-256 hash-chained, append-only status history. Real, not
@@ -69,7 +69,15 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
   letting Clerk force `owner`, never anything else). `assertCanWrite` gates
   every mutation so `viewer` is read-only everywhere; `assertIsOrgAdmin`
   gates the staff panel itself (owner/admin only).
-- **Mobile app**: one screen, no real CRUD yet.
+- **Mobile app**: real flow now — sign-in, org picker, company list, per-company
+  invoice list, new-invoice form (client + product picker, multi-line, TVA
+  rate), invoice detail with issue action. Verified with a real headless
+  `expo export` bundle (1105 modules, no unresolved imports), not just
+  typecheck. Missing `@babel/runtime` dependency (nothing in the workspace
+  had ever declared it) was blocking the app from bundling at all — fixed by
+  adding it to `apps/mobile/package.json`. Still missing: client/product
+  create-in-app (currently manage those from the web dashboard), edit/delete
+  from mobile, DGI submission trigger from mobile.
 - **No CI/deploy pipeline**: `infra/` is empty.
 - **RLS backstop**: `app_user` Postgres role created (grants applied,
   DELETE revoked on legally-retained tables) and `rls.sql` policies are
@@ -117,7 +125,6 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
   first, then switch `DATABASE_URL`/`DIRECT_URL` to `app_user`. Explicitly
   paused pending a deliberate go/no-go, not a "todo" — see the gaps section
   above for why.
-- Mobile app real CRUD (currently one shell screen).
 - CI pipeline (`infra/` is empty).
 - Real Resend account/API key/verified domain to actually send the mail
   that `ResendMailProvider` is already wired up to send.
