@@ -1,18 +1,21 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { ConsoleMailProvider, type MailProvider } from "@app/mailer";
+import { ConsoleMailProvider, ResendMailProvider, type MailProvider } from "@app/mailer";
 import { companyInput, prospectInviteCreateInput, prospectSubmissionInput } from "@app/shared-types";
 import { protectedProcedure, publicProcedure, router } from "../trpc";
 import { generateInviteToken, hashInviteToken } from "../../tokens";
 
 const INVITE_TTL_DAYS = 7;
 
-/**
- * No real provider (Resend/SES) wired up yet — see packages/mailer. Every
- * environment sends through ConsoleMailProvider until MAIL_PROVIDER picks
- * a real one; that's the only line that changes.
- */
 function getMailProvider(): MailProvider {
+  if (process.env.MAIL_PROVIDER === "resend") {
+    const apiKey = process.env.RESEND_API_KEY;
+    const from = process.env.MAIL_FROM;
+    if (!apiKey || !from) {
+      throw new Error("MAIL_PROVIDER=resend requires RESEND_API_KEY and MAIL_FROM to be set");
+    }
+    return new ResendMailProvider(apiKey, from);
+  }
   return new ConsoleMailProvider();
 }
 

@@ -50,9 +50,13 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
 - **DGI submission** (`packages/dgi-clearance`): always "accepted", fake
   reference. Blocked on Morocco's DGI publishing a real API — not something
   we can build ahead of. Swap point is the `DgiClearanceProvider` interface.
-- **Email** (`packages/mailer`): `ConsoleMailProvider` just logs. Swap point
-  is the `MailProvider` interface — pick Resend/SES when ready to actually
-  send mail.
+- **Email** (`packages/mailer`): `ResendMailProvider` now exists and is
+  verified against Resend's real API (confirmed via a 401-on-fake-key smoke
+  test — the HTTP call shape is correct). Selected via `MAIL_PROVIDER=resend`
+  + `RESEND_API_KEY` + `MAIL_FROM` env vars in `apps/api/.env`; unset
+  `MAIL_PROVIDER` (the default everywhere today, including prod `.env`) keeps
+  `ConsoleMailProvider` (logs only). **Still needs**: a real Resend account +
+  API key + verified sending domain before it actually delivers anything.
 - **RBAC is coarse**: Clerk roles collapse to just owner/viewer in
   `apps/api/src/trpc/context.ts` (`mapClerkOrgRole`), even though the DB
   schema already has the richer `OrgRole` enum (owner/admin/accountant/
