@@ -14,9 +14,11 @@ interface ClerkSessionClaims {
 }
 
 function mapClerkOrgRole(clerkRole: string | undefined): OrgRole {
-  // Clerk's default roles are "org:admin" and "org:member". Our richer
-  // owner/admin/accountant/bookkeeper/viewer split is assigned later via
-  // our own RBAC UI (Phase 3) — for now, map conservatively and fail closed.
+  // Clerk only distinguishes "org:admin" vs "org:member". That's just the
+  // seed value for a brand-new membership (and a standing override for
+  // org:admin, see resolveAuthContext below) — the richer
+  // admin/accountant/bookkeeper/viewer split for org:member users is owned
+  // by our own RBAC UI (membership.setRole), not by Clerk.
   return clerkRole === "org:admin" ? "owner" : "viewer";
 }
 
@@ -37,10 +39,11 @@ interface AuthContext {
   userId: string | null;
   organizationId: string | null;
   companyIds: string[];
+  role: OrgRole | null;
 }
 
 async function resolveAuthContext(authHeader: string | undefined): Promise<AuthContext> {
-  const empty: AuthContext = { userId: null, organizationId: null, companyIds: [] };
+  const empty: AuthContext = { userId: null, organizationId: null, companyIds: [], role: null };
 
   const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
   if (!token || !process.env.CLERK_SECRET_KEY) {
@@ -72,7 +75,7 @@ async function resolveAuthContext(authHeader: string | undefined): Promise<AuthC
 
   if (!clerkOrgId) {
     // Signed in but no active organization selected/created yet.
-    return { userId: user.id, organizationId: null, companyIds: [] };
+    return { userId: user.id, organizationId: null, companyIds: [], role: null };
   }
 
   // Upsert the local Organization row on first sighting of this Clerk org.
@@ -83,12 +86,26 @@ async function resolveAuthContext(authHeader: string | undefined): Promise<AuthC
   }
 
   const clerkOrgRole = await fetchClerkOrgRole(clerkUserId, clerkOrgId);
-  const role = mapClerkOrgRole(clerkOrgRole);
-  await prisma.membership.upsert({
+  const defaultRole = mapClerkOrgRole(clerkOrgRole);
+
+  // First sighting: seed from Clerk's admin/member split. After that, the
+  // richer accountant/bookkeeper/viewer/admin split is owned by our own RBAC
+  // UI (membership.setRole) and must not be clobbered on every request — the
+  // one exception is Clerk org:admin, which always forces "owner" so an org
+  // admin can never be locked out by a stale local role row.
+  const existing = await prisma.membership.findUnique({
     where: { organizationId_userId: { organizationId: organization.id, userId: user.id } },
-    create: { organizationId: organization.id, userId: user.id, role },
-    update: { role },
   });
+  const role: OrgRole =
+    !existing ? defaultRole : defaultRole === "owner" ? "owner" : existing.role;
+
+  if (!existing || existing.role !== role) {
+    await prisma.membership.upsert({
+      where: { organizationId_userId: { organizationId: organization.id, userId: user.id } },
+      create: { organizationId: organization.id, userId: user.id, role },
+      update: { role },
+    });
+  }
 
   const companyIds =
     role === "owner" || role === "admin"
@@ -105,7 +122,7 @@ async function resolveAuthContext(authHeader: string | undefined): Promise<AuthC
           })
         ).map((c) => c.companyId);
 
-  return { userId: user.id, organizationId: organization.id, companyIds };
+  return { userId: user.id, organizationId: organization.id, companyIds, role };
 }
 
 /**

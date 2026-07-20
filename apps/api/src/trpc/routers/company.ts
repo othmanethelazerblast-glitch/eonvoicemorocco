@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { companyInput } from "@app/shared-types";
 import { protectedProcedure, router } from "../trpc";
-import { assertCompanyAccess } from "../access";
+import { assertCanWrite, assertCompanyAccess } from "../access";
 import { deleteOrFriendlyConflict } from "../errors";
 
 export const companyRouter = router({
@@ -18,6 +18,7 @@ export const companyRouter = router({
    * since companyIds for non-owner/admin roles comes only from CompanyAccess.
    */
   create: protectedProcedure.input(companyInput).mutation(async ({ ctx, input }) => {
+    assertCanWrite(ctx);
     return ctx.prisma.$transaction(async (tx) => {
       const company = await tx.company.create({
         data: {
@@ -45,6 +46,7 @@ export const companyRouter = router({
   update: protectedProcedure
     .input(companyInput.partial().extend({ id: z.string().uuid() }))
     .mutation(({ ctx, input }) => {
+      assertCanWrite(ctx);
       assertCompanyAccess(ctx, input.id);
       const { id, identifiers, address, ...rest } = input;
       return ctx.prisma.company.update({
@@ -69,6 +71,7 @@ export const companyRouter = router({
     }),
 
   delete: protectedProcedure.input(z.object({ id: z.string().uuid() })).mutation(({ ctx, input }) => {
+    assertCanWrite(ctx);
     assertCompanyAccess(ctx, input.id);
     return deleteOrFriendlyConflict(
       () => ctx.prisma.company.delete({ where: { id: input.id } }),

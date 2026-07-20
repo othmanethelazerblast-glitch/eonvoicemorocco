@@ -43,7 +43,11 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
   project's "FluentValidation equivalent" — lean on it for new fields/rules
   rather than redefining shapes per-router.
 - `assertCompanyAccess` centralized in `apps/api/src/trpc/access.ts` — don't
-  redefine it per-router again.
+  redefine it per-router again. `assertCanWrite`/`assertIsOrgAdmin` live
+  alongside it (see RBAC below).
+- Richer RBAC: per-company roles (owner/admin/accountant/bookkeeper/viewer)
+  assignable via a "Equipe" panel on the dashboard (owner/admin only). Viewer
+  is read-only everywhere.
 
 ## Known gaps / deliberately stubbed
 
@@ -57,11 +61,14 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
   `MAIL_PROVIDER` (the default everywhere today, including prod `.env`) keeps
   `ConsoleMailProvider` (logs only). **Still needs**: a real Resend account +
   API key + verified sending domain before it actually delivers anything.
-- **RBAC is coarse**: Clerk roles collapse to just owner/viewer in
-  `apps/api/src/trpc/context.ts` (`mapClerkOrgRole`), even though the DB
-  schema already has the richer `OrgRole` enum (owner/admin/accountant/
-  bookkeeper/viewer) ready to go. This is the natural next piece if selling
-  to firms with multiple staff who need different access per client.
+- **RBAC**: done. Clerk still only seeds owner/viewer on first sighting
+  (`mapClerkOrgRole`), but the richer owner/admin/accountant/bookkeeper/viewer
+  split is now assigned via our own UI (`StaffList` component, `membership`
+  router) and **persists** — `context.ts` no longer clobbers a manually-set
+  role back to the Clerk default on every request (it used to; fixed by only
+  letting Clerk force `owner`, never anything else). `assertCanWrite` gates
+  every mutation so `viewer` is read-only everywhere; `assertIsOrgAdmin`
+  gates the staff panel itself (owner/admin only).
 - **Mobile app**: one screen, no real CRUD yet.
 - **No CI/deploy pipeline**: `infra/` is empty.
 - **RLS backstop** (`packages/db/prisma/rls.sql`) isn't wired in yet — needs
@@ -97,7 +104,10 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
 
 ## Next candidate work (not started)
 
-- Richer RBAC (per-company role beyond owner/viewer) — schema is ready,
-  needs the Clerk role-mapping + UI to assign roles.
-- Real mail provider swap-in once one is chosen.
-- CI pipeline.
+- Wire the RLS backstop (`packages/db/prisma/rls.sql`): needs a dedicated
+  non-owner `app_user` Postgres role + `SET LOCAL app.current_company_ids`
+  per request.
+- Mobile app real CRUD (currently one shell screen).
+- CI pipeline (`infra/` is empty).
+- Real Resend account/API key/verified domain to actually send the mail
+  that `ResendMailProvider` is already wired up to send.

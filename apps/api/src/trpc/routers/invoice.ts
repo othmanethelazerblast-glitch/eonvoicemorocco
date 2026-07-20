@@ -7,7 +7,7 @@ import { generateInvoicePdf } from "@app/pdf-generator";
 import type { UblInvoiceInput } from "@app/shared-types";
 import { generateUblInvoiceXml } from "@app/ubl-generator";
 import { protectedProcedure, router } from "../trpc";
-import { assertCompanyAccess } from "../access";
+import { assertCanWrite, assertCompanyAccess } from "../access";
 import { uploadInvoiceDocument } from "../../storage";
 
 const createInvoiceInput = z.object({
@@ -141,6 +141,7 @@ export const invoiceRouter = router({
     }),
 
   createDraft: protectedProcedure.input(createInvoiceInput).mutation(async ({ ctx, input }) => {
+    assertCanWrite(ctx);
     assertCompanyAccess(ctx, input.companyId);
     const totals = computeTotals(input.lines);
 
@@ -173,6 +174,7 @@ export const invoiceRouter = router({
   issue: protectedProcedure
     .input(z.object({ invoiceId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      assertCanWrite(ctx);
       const invoice = await ctx.prisma.invoice.findUniqueOrThrow({
         where: { id: input.invoiceId },
         include: { lines: true },
@@ -269,6 +271,7 @@ export const invoiceRouter = router({
   createCreditNote: protectedProcedure
     .input(z.object({ invoiceId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      assertCanWrite(ctx);
       const original = await ctx.prisma.invoice.findUniqueOrThrow({
         where: { id: input.invoiceId },
         include: { lines: true },
@@ -448,6 +451,7 @@ export const invoiceRouter = router({
   submit: protectedProcedure
     .input(z.object({ invoiceId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      assertCanWrite(ctx);
       const invoice = await ctx.prisma.invoice.findUniqueOrThrow({
         where: { id: input.invoiceId },
         include: { lines: true, company: true, client: true },

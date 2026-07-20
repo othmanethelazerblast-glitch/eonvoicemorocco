@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ConsoleMailProvider, ResendMailProvider, type MailProvider } from "@app/mailer";
 import { companyInput, prospectInviteCreateInput, prospectSubmissionInput } from "@app/shared-types";
 import { protectedProcedure, publicProcedure, router } from "../trpc";
+import { assertCanWrite } from "../access";
 import { generateInviteToken, hashInviteToken } from "../../tokens";
 
 const INVITE_TTL_DAYS = 7;
@@ -46,6 +47,7 @@ export const prospectInviteRouter = router({
   }),
 
   create: protectedProcedure.input(prospectInviteCreateInput).mutation(async ({ ctx, input }) => {
+    assertCanWrite(ctx);
     const organization = await ctx.prisma.organization.findUniqueOrThrow({
       where: { id: ctx.organizationId },
     });
@@ -82,6 +84,7 @@ export const prospectInviteRouter = router({
   reject: protectedProcedure
     .input(z.object({ id: z.string().uuid(), reason: z.string().optional() }))
     .mutation(async ({ ctx, input }) => {
+      assertCanWrite(ctx);
       const invite = await ctx.prisma.prospectInvite.findUniqueOrThrow({ where: { id: input.id } });
       if (invite.organizationId !== ctx.organizationId) {
         throw new TRPCError({ code: "FORBIDDEN" });
@@ -94,6 +97,7 @@ export const prospectInviteRouter = router({
     }),
 
   approve: protectedProcedure.input(z.object({ id: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+    assertCanWrite(ctx);
     const invite = await ctx.prisma.prospectInvite.findUniqueOrThrow({ where: { id: input.id } });
     if (invite.organizationId !== ctx.organizationId) {
       throw new TRPCError({ code: "FORBIDDEN" });

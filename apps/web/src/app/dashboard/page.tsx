@@ -11,6 +11,7 @@ import { ProductList } from "@/components/ProductList";
 import { InvoiceList } from "@/components/InvoiceList";
 import { DashboardStats } from "@/components/DashboardStats";
 import { ProspectInviteList } from "@/components/ProspectInviteList";
+import { StaffList } from "@/components/StaffList";
 
 const TABS = [
   { id: "invoices", label: "Factures", icon: <FileText className="h-3.5 w-3.5" /> },
@@ -63,6 +64,8 @@ function Dashboard() {
       {activeCompanyId && <CompanyWorkspace companyId={activeCompanyId} />}
 
       <ProspectInviteList />
+
+      <StaffList />
     </div>
   );
 }

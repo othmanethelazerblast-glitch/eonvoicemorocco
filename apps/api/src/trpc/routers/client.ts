@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { clientInput } from "@app/shared-types";
 import { protectedProcedure, router } from "../trpc";
-import { assertCompanyAccess } from "../access";
+import { assertCanWrite, assertCompanyAccess } from "../access";
 import { deleteOrFriendlyConflict } from "../errors";
 
 export const clientRouter = router({
@@ -16,6 +16,7 @@ export const clientRouter = router({
     }),
 
   create: protectedProcedure.input(clientInput).mutation(({ ctx, input }) => {
+    assertCanWrite(ctx);
     assertCompanyAccess(ctx, input.companyId);
     return ctx.prisma.client.create({
       data: {
@@ -38,6 +39,7 @@ export const clientRouter = router({
   update: protectedProcedure
     .input(clientInput.omit({ companyId: true }).partial().extend({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      assertCanWrite(ctx);
       const existing = await ctx.prisma.client.findUniqueOrThrow({ where: { id: input.id } });
       assertCompanyAccess(ctx, existing.companyId);
       const { id, identifiers, address, ...rest } = input;
@@ -63,6 +65,7 @@ export const clientRouter = router({
     }),
 
   delete: protectedProcedure.input(z.object({ id: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+    assertCanWrite(ctx);
     const existing = await ctx.prisma.client.findUniqueOrThrow({ where: { id: input.id } });
     assertCompanyAccess(ctx, existing.companyId);
     return deleteOrFriendlyConflict(

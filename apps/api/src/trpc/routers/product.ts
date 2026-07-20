@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { productInput } from "@app/shared-types";
 import { protectedProcedure, router } from "../trpc";
-import { assertCompanyAccess } from "../access";
+import { assertCanWrite, assertCompanyAccess } from "../access";
 
 export const productRouter = router({
   listByCompany: protectedProcedure
@@ -15,6 +15,7 @@ export const productRouter = router({
     }),
 
   create: protectedProcedure.input(productInput).mutation(({ ctx, input }) => {
+    assertCanWrite(ctx);
     assertCompanyAccess(ctx, input.companyId);
     return ctx.prisma.product.create({
       data: {
@@ -30,6 +31,7 @@ export const productRouter = router({
   update: protectedProcedure
     .input(productInput.omit({ companyId: true }).partial().extend({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      assertCanWrite(ctx);
       const existing = await ctx.prisma.product.findUniqueOrThrow({ where: { id: input.id } });
       assertCompanyAccess(ctx, existing.companyId);
       const { id, ...rest } = input;
@@ -37,6 +39,7 @@ export const productRouter = router({
     }),
 
   delete: protectedProcedure.input(z.object({ id: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+    assertCanWrite(ctx);
     const existing = await ctx.prisma.product.findUniqueOrThrow({ where: { id: input.id } });
     assertCompanyAccess(ctx, existing.companyId);
     return ctx.prisma.product.delete({ where: { id: input.id } });
