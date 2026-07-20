@@ -51,9 +51,23 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
 
 ## Known gaps / deliberately stubbed
 
-- **DGI submission** (`packages/dgi-clearance`): always "accepted", fake
-  reference. Blocked on Morocco's DGI publishing a real API — not something
-  we can build ahead of. Swap point is the `DgiClearanceProvider` interface.
+- **DGI submission** (`packages/dgi-clearance`): DGI's own direct API still
+  doesn't exist, but `EfactClearanceProvider` now integrates with efact.ma —
+  a real third-party clearance middleware whose sandbox runs invoices
+  through an actual UBL 2.1 + XAdES signing pipeline (only the final DGI
+  callback is simulated on their end). Verified against the real
+  `api.efact.ma` endpoint (clean, correctly-parsed 401 on a fake key).
+  Gated per-company: only fires when a company's `clearanceMode` is `"live"`
+  *and* `DGI_CLEARANCE_PROVIDER=efact` + `EFACT_SECRET_KEY` are set — every
+  company defaulting to `clearanceMode: stubbed` is completely unaffected.
+  **Still needs**: a real `EFACT_SECRET_KEY` (efact.ma doesn't show a
+  self-serve signup in their docs — get one directly from them) and, later,
+  a real `paymentMethod` field on `Invoice` (currently hardcoded
+  `"BANK_TRANSFER"` since we don't collect it — fine for sandbox, not for
+  real submissions). efact is middleware, not DGI itself, and not yet an
+  accredited CSP (DGI hasn't published that accreditation process) — the
+  `DgiClearanceProvider` interface is what keeps switching to DGI directly,
+  or another CSP, a new provider class instead of a rewrite.
 - **Email** (`packages/mailer`): `ResendMailProvider` now exists and is
   verified against Resend's real API (confirmed via a 401-on-fake-key smoke
   test — the HTTP call shape is correct). Selected via `MAIL_PROVIDER=resend`

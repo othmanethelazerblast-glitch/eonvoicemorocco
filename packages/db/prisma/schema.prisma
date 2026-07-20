@@ -330,6 +330,7 @@ model InvoiceStatusHistory {
 enum DgiProvider {
   stub
   xhub
+  efact
 }
 
 enum DgiSubmissionStatus {

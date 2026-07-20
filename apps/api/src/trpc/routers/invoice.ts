@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import type { ClearanceMode, Prisma } from "@app/db";
-import { StubClearanceProvider, type DgiClearanceProvider } from "@app/dgi-clearance";
+import { EfactClearanceProvider, StubClearanceProvider, type DgiClearanceProvider } from "@app/dgi-clearance";
 import { generateInvoicePdf } from "@app/pdf-generator";
 import type { UblInvoiceInput } from "@app/shared-types";
 import { generateUblInvoiceXml } from "@app/ubl-generator";
@@ -60,10 +60,13 @@ function toPartyPayload(entity: PartyRow) {
 
 /**
  * "none" means the company opted out of clearance entirely — nothing to
- * submit. "stubbed" and "live" both resolve to the stub today because DGI
- * has not published a real API to integrate against yet (see
- * packages/dgi-clearance); once it does, "live" is the branch that picks an
- * XhubClearanceProvider instead.
+ * submit. "stubbed" always uses StubClearanceProvider, regardless of env
+ * config — a company only gets a real (sandbox) submission attempt once
+ * explicitly switched to "live", matching the phased DGI rollout. DGI has
+ * not published its own direct API yet, so "live" today means EFact's
+ * sandbox middleware (see packages/dgi-clearance) if DGI_CLEARANCE_PROVIDER
+ * is set; otherwise it falls back to the stub so nothing breaks for
+ * companies flagged "live" without EFact credentials configured.
  */
 function getClearanceProvider(clearanceMode: ClearanceMode): DgiClearanceProvider {
   if (clearanceMode === "none") {
@@ -71,6 +74,13 @@ function getClearanceProvider(clearanceMode: ClearanceMode): DgiClearanceProvide
       code: "BAD_REQUEST",
       message: "La clairance DGI n'est pas activee pour cette societe.",
     });
+  }
+  if (clearanceMode === "live" && process.env.DGI_CLEARANCE_PROVIDER === "efact") {
+    const apiKey = process.env.EFACT_SECRET_KEY;
+    if (!apiKey) {
+      throw new Error("DGI_CLEARANCE_PROVIDER=efact requires EFACT_SECRET_KEY to be set");
+    }
+    return new EfactClearanceProvider(apiKey, process.env.EFACT_BASE_URL);
   }
   return new StubClearanceProvider();
 }

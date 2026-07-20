@@ -17,7 +17,7 @@ export type DgiSubmissionStatus = z.infer<typeof dgiSubmissionStatusSchema>;
 export const dgiSubmissionSchema = z.object({
   id: z.string().uuid(),
   invoiceId: z.string().uuid(),
-  provider: z.enum(["stub", "xhub"]).default("stub"),
+  provider: z.enum(["stub", "xhub", "efact"]).default("stub"),
   status: dgiSubmissionStatusSchema,
   requestPayload: z.record(z.unknown()).optional(),
   responsePayload: z.record(z.unknown()).optional(),
