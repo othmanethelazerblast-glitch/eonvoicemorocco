@@ -1,27 +1,37 @@
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { companyInput } from "@app/shared-types";
-import { protectedProcedure, router } from "../trpc";
+import { companyScopedProcedure, protectedProcedure, router } from "../trpc";
 import { assertCanWrite, assertCompanyAccess } from "../access";
 import { deleteOrFriendlyConflict } from "../errors";
 
 export const companyRouter = router({
-  list: protectedProcedure.query(({ ctx }) => {
+  list: companyScopedProcedure.query(({ ctx }) => {
     return ctx.prisma.company.findMany({
       where: { organizationId: ctx.organizationId, id: { in: ctx.companyIds } },
     });
   }),
 
   /**
-   * Grants the creator explicit CompanyAccess in the same transaction —
+   * Generates the new company's id app-side (instead of letting Prisma's
+   * @default(uuid()) pick it during the insert) so it can be passed as
+   * withCompanyScope's extraCompanyIds — the companies RLS SELECT policy
+   * also gates INSERT...RETURNING, so without this the create() call itself
+   * fails even though the INSERT is otherwise permitted (see withCompanyScope
+   * doc comment in context.ts, verified directly against app_user).
+   *
+   * Also grants the creator explicit CompanyAccess in the same transaction —
    * without it, a non-owner/admin org role (viewer, per mapClerkOrgRole)
    * would immediately 403 on every query for the company they just created,
    * since companyIds for non-owner/admin roles comes only from CompanyAccess.
    */
   create: protectedProcedure.input(companyInput).mutation(async ({ ctx, input }) => {
     assertCanWrite(ctx);
-    return ctx.prisma.$transaction(async (tx) => {
+    const newCompanyId = randomUUID();
+    return ctx.withCompanyScope(async (tx) => {
       const company = await tx.company.create({
         data: {
+          id: newCompanyId,
           organizationId: ctx.organizationId,
           name: input.name,
           ice: input.identifiers.ice,
@@ -40,10 +50,10 @@ export const companyRouter = router({
         data: { userId: ctx.userId, companyId: company.id },
       });
       return company;
-    });
+    }, [newCompanyId]);
   }),
 
-  update: protectedProcedure
+  update: companyScopedProcedure
     .input(companyInput.partial().extend({ id: z.string().uuid() }))
     .mutation(({ ctx, input }) => {
       assertCanWrite(ctx);
@@ -70,7 +80,7 @@ export const companyRouter = router({
       });
     }),
 
-  delete: protectedProcedure.input(z.object({ id: z.string().uuid() })).mutation(({ ctx, input }) => {
+  delete: companyScopedProcedure.input(z.object({ id: z.string().uuid() })).mutation(({ ctx, input }) => {
     assertCanWrite(ctx);
     assertCompanyAccess(ctx, input.id);
     return deleteOrFriendlyConflict(

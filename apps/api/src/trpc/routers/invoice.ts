@@ -105,47 +105,57 @@ function computeTotals(lines: { quantity: number; unitPrice: number; tvaRate: nu
  * with sequential per-company numbering and a hash chain so the data can't be
  * silently rewritten later. Every transition is recorded in
  * InvoiceStatusHistory (append-only, never updated/deleted).
+ *
+ * RLS scoping note: every DB segment below runs inside ctx.withCompanyScope
+ * rather than the whole procedure, and mutations with external I/O (DGI
+ * submission, PDF/UBL storage upload) split into separate scoped blocks with
+ * the external call in between, outside any open transaction — see the
+ * withCompanyScope doc comment in context.ts for why.
  */
 export const invoiceRouter = router({
   listByCompany: protectedProcedure
     .input(z.object({ companyId: z.string().uuid() }))
     .query(({ ctx, input }) => {
       assertCompanyAccess(ctx, input.companyId);
-      return ctx.prisma.invoice.findMany({
-        where: { companyId: input.companyId },
-        include: {
-          lines: true,
-          client: { select: { name: true } },
-          dgiSubmissions: { orderBy: { createdAt: "desc" }, take: 1 },
-          correctsInvoice: { select: { invoiceNumber: true } },
-          correctedByInvoices: { select: { id: true, status: true } },
-        },
-        orderBy: { createdAt: "desc" },
-      });
+      return ctx.withCompanyScope((tx) =>
+        tx.invoice.findMany({
+          where: { companyId: input.companyId },
+          include: {
+            lines: true,
+            client: { select: { name: true } },
+            dgiSubmissions: { orderBy: { createdAt: "desc" }, take: 1 },
+            correctsInvoice: { select: { invoiceNumber: true } },
+            correctedByInvoices: { select: { id: true, status: true } },
+          },
+          orderBy: { createdAt: "desc" },
+        }),
+      );
     }),
 
   getById: protectedProcedure
     .input(z.object({ invoiceId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
-      const invoice = await ctx.prisma.invoice.findUniqueOrThrow({
-        where: { id: input.invoiceId },
-        include: {
-          lines: true,
-          client: true,
-          company: { select: { name: true } },
-          statusHistory: { orderBy: { createdAt: "asc" } },
-          // requestPayload/responsePayload aren't rendered anywhere and
-          // Prisma's recursive Json type blows up TS's instantiation depth
-          // when this shape flows into JSX — select only what the UI uses.
-          dgiSubmissions: {
-            orderBy: { createdAt: "desc" },
-            select: { id: true, status: true, errorDetail: true, createdAt: true },
+      const invoice = await ctx.withCompanyScope((tx) =>
+        tx.invoice.findUniqueOrThrow({
+          where: { id: input.invoiceId },
+          include: {
+            lines: true,
+            client: true,
+            company: { select: { name: true } },
+            statusHistory: { orderBy: { createdAt: "asc" } },
+            // requestPayload/responsePayload aren't rendered anywhere and
+            // Prisma's recursive Json type blows up TS's instantiation depth
+            // when this shape flows into JSX — select only what the UI uses.
+            dgiSubmissions: {
+              orderBy: { createdAt: "desc" },
+              select: { id: true, status: true, errorDetail: true, createdAt: true },
+            },
+            documents: { orderBy: { createdAt: "desc" } },
+            correctsInvoice: { select: { id: true, invoiceNumber: true } },
+            correctedByInvoices: { select: { id: true, invoiceNumber: true, status: true } },
           },
-          documents: { orderBy: { createdAt: "desc" } },
-          correctsInvoice: { select: { id: true, invoiceNumber: true } },
-          correctedByInvoices: { select: { id: true, invoiceNumber: true, status: true } },
-        },
-      });
+        }),
+      );
       assertCompanyAccess(ctx, invoice.companyId);
       return invoice;
     }),
@@ -155,119 +165,123 @@ export const invoiceRouter = router({
     assertCompanyAccess(ctx, input.companyId);
     const totals = computeTotals(input.lines);
 
-    return ctx.prisma.invoice.create({
-      data: {
-        companyId: input.companyId,
-        clientId: input.clientId,
-        status: "draft",
-        totalExclTax: totals.totalExclTax,
-        totalTax: totals.totalTax,
-        totalInclTax: totals.totalInclTax,
-        lines: {
-          create: input.lines.map((line) => ({
-            productId: line.productId,
-            description: line.description,
-            quantity: line.quantity,
-            unitPrice: line.unitPrice,
-            tvaRate: line.tvaRate,
-            lineTotalExclTax: line.quantity * line.unitPrice,
-          })),
+    return ctx.withCompanyScope((tx) =>
+      tx.invoice.create({
+        data: {
+          companyId: input.companyId,
+          clientId: input.clientId,
+          status: "draft",
+          totalExclTax: totals.totalExclTax,
+          totalTax: totals.totalTax,
+          totalInclTax: totals.totalInclTax,
+          lines: {
+            create: input.lines.map((line) => ({
+              productId: line.productId,
+              description: line.description,
+              quantity: line.quantity,
+              unitPrice: line.unitPrice,
+              tvaRate: line.tvaRate,
+              lineTotalExclTax: line.quantity * line.unitPrice,
+            })),
+          },
+          statusHistory: {
+            create: { fromStatus: null, toStatus: "draft", actorUserId: ctx.userId },
+          },
         },
-        statusHistory: {
-          create: { fromStatus: null, toStatus: "draft", actorUserId: ctx.userId },
-        },
-      },
-      include: { lines: true },
-    });
+        include: { lines: true },
+      }),
+    );
   }),
 
   issue: protectedProcedure
     .input(z.object({ invoiceId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       assertCanWrite(ctx);
-      const invoice = await ctx.prisma.invoice.findUniqueOrThrow({
-        where: { id: input.invoiceId },
-        include: { lines: true },
-      });
-      assertCompanyAccess(ctx, invoice.companyId);
-      if (invoice.status !== "draft") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Seule une facture brouillon peut etre emise." });
-      }
-
-      // Note: concurrent issue calls can race on `issuedCount`/numbering; the
-      // @@unique([companyId, invoiceNumber]) constraint prevents a duplicate
-      // number from being persisted, but the loser gets a raw DB error rather
-      // than a friendly retry. Acceptable for MVP volume, worth revisiting
-      // before this handles real concurrent traffic.
-      const previousIssued = await ctx.prisma.invoice.findFirst({
-        where: { companyId: invoice.companyId, status: { not: "draft" } },
-        orderBy: { issueDate: "desc" },
-        select: { hash: true },
-      });
-
-      const issuedCount = await ctx.prisma.invoice.count({
-        where: { companyId: invoice.companyId, status: { not: "draft" } },
-      });
-      const invoiceNumber = `INV-${String(issuedCount + 1).padStart(6, "0")}`;
-      const issueDate = new Date();
-
-      const canonicalPayload = JSON.stringify({
-        companyId: invoice.companyId,
-        clientId: invoice.clientId,
-        invoiceNumber,
-        totalExclTax: invoice.totalExclTax.toString(),
-        totalTax: invoice.totalTax.toString(),
-        totalInclTax: invoice.totalInclTax.toString(),
-        lines: invoice.lines.map((l) => ({
-          description: l.description,
-          quantity: l.quantity.toString(),
-          unitPrice: l.unitPrice.toString(),
-          tvaRate: l.tvaRate.toString(),
-        })),
-      });
-      const previousInvoiceHash = previousIssued?.hash ?? "";
-      const hash = createHash("sha256").update(previousInvoiceHash + canonicalPayload).digest("hex");
-
-      const issued = await ctx.prisma.invoice.update({
-        where: { id: invoice.id },
-        data: {
-          status: "issued",
-          invoiceNumber,
-          issueDate,
-          hash,
-          previousInvoiceHash: previousIssued?.hash,
-          statusHistory: {
-            create: { fromStatus: "draft", toStatus: "issued", actorUserId: ctx.userId },
-          },
-        },
-        include: { lines: true },
-      });
-
-      // A credit note voids the invoice it corrects the moment it's actually
-      // issued (not when merely drafted) — the corrected invoice keeps its
-      // own hash-chained history intact, "void" is just its final state.
-      if (issued.correctsInvoiceId) {
-        const corrected = await ctx.prisma.invoice.findUniqueOrThrow({
-          where: { id: issued.correctsInvoiceId },
-          select: { status: true },
+      return ctx.withCompanyScope(async (tx) => {
+        const invoice = await tx.invoice.findUniqueOrThrow({
+          where: { id: input.invoiceId },
+          include: { lines: true },
         });
-        await ctx.prisma.invoice.update({
-          where: { id: issued.correctsInvoiceId },
+        assertCompanyAccess(ctx, invoice.companyId);
+        if (invoice.status !== "draft") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Seule une facture brouillon peut etre emise." });
+        }
+
+        // Note: concurrent issue calls can race on `issuedCount`/numbering; the
+        // @@unique([companyId, invoiceNumber]) constraint prevents a duplicate
+        // number from being persisted, but the loser gets a raw DB error rather
+        // than a friendly retry. Acceptable for MVP volume, worth revisiting
+        // before this handles real concurrent traffic.
+        const previousIssued = await tx.invoice.findFirst({
+          where: { companyId: invoice.companyId, status: { not: "draft" } },
+          orderBy: { issueDate: "desc" },
+          select: { hash: true },
+        });
+
+        const issuedCount = await tx.invoice.count({
+          where: { companyId: invoice.companyId, status: { not: "draft" } },
+        });
+        const invoiceNumber = `INV-${String(issuedCount + 1).padStart(6, "0")}`;
+        const issueDate = new Date();
+
+        const canonicalPayload = JSON.stringify({
+          companyId: invoice.companyId,
+          clientId: invoice.clientId,
+          invoiceNumber,
+          totalExclTax: invoice.totalExclTax.toString(),
+          totalTax: invoice.totalTax.toString(),
+          totalInclTax: invoice.totalInclTax.toString(),
+          lines: invoice.lines.map((l) => ({
+            description: l.description,
+            quantity: l.quantity.toString(),
+            unitPrice: l.unitPrice.toString(),
+            tvaRate: l.tvaRate.toString(),
+          })),
+        });
+        const previousInvoiceHash = previousIssued?.hash ?? "";
+        const hash = createHash("sha256").update(previousInvoiceHash + canonicalPayload).digest("hex");
+
+        const issued = await tx.invoice.update({
+          where: { id: invoice.id },
           data: {
-            status: "void",
+            status: "issued",
+            invoiceNumber,
+            issueDate,
+            hash,
+            previousInvoiceHash: previousIssued?.hash,
             statusHistory: {
-              create: {
-                fromStatus: corrected.status,
-                toStatus: "void",
-                actorUserId: ctx.userId,
-                note: `Annulee par la note de credit ${issued.invoiceNumber}`,
-              },
+              create: { fromStatus: "draft", toStatus: "issued", actorUserId: ctx.userId },
             },
           },
+          include: { lines: true },
         });
-      }
 
-      return issued;
+        // A credit note voids the invoice it corrects the moment it's actually
+        // issued (not when merely drafted) — the corrected invoice keeps its
+        // own hash-chained history intact, "void" is just its final state.
+        if (issued.correctsInvoiceId) {
+          const corrected = await tx.invoice.findUniqueOrThrow({
+            where: { id: issued.correctsInvoiceId },
+            select: { status: true },
+          });
+          await tx.invoice.update({
+            where: { id: issued.correctsInvoiceId },
+            data: {
+              status: "void",
+              statusHistory: {
+                create: {
+                  fromStatus: corrected.status,
+                  toStatus: "void",
+                  actorUserId: ctx.userId,
+                  note: `Annulee par la note de credit ${issued.invoiceNumber}`,
+                },
+              },
+            },
+          });
+        }
+
+        return issued;
+      });
     }),
 
   /**
@@ -282,61 +296,63 @@ export const invoiceRouter = router({
     .input(z.object({ invoiceId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       assertCanWrite(ctx);
-      const original = await ctx.prisma.invoice.findUniqueOrThrow({
-        where: { id: input.invoiceId },
-        include: { lines: true },
-      });
-      assertCompanyAccess(ctx, original.companyId);
-      if (!["issued", "submitted", "cleared"].includes(original.status)) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Seule une facture emise (ou soumise/validee) peut etre avoiree par une note de credit.",
+      return ctx.withCompanyScope(async (tx) => {
+        const original = await tx.invoice.findUniqueOrThrow({
+          where: { id: input.invoiceId },
+          include: { lines: true },
         });
-      }
+        assertCompanyAccess(ctx, original.companyId);
+        if (!["issued", "submitted", "cleared"].includes(original.status)) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Seule une facture emise (ou soumise/validee) peut etre avoiree par une note de credit.",
+          });
+        }
 
-      const existingCreditNote = await ctx.prisma.invoice.findFirst({
-        where: { correctsInvoiceId: original.id },
-      });
-      if (existingCreditNote) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Une note de credit existe deja pour cette facture.",
+        const existingCreditNote = await tx.invoice.findFirst({
+          where: { correctsInvoiceId: original.id },
         });
-      }
+        if (existingCreditNote) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Une note de credit existe deja pour cette facture.",
+          });
+        }
 
-      const totals = computeTotals(
-        original.lines.map((line) => ({
-          quantity: -Number(line.quantity),
-          unitPrice: Number(line.unitPrice),
-          tvaRate: Number(line.tvaRate),
-        })),
-      );
+        const totals = computeTotals(
+          original.lines.map((line) => ({
+            quantity: -Number(line.quantity),
+            unitPrice: Number(line.unitPrice),
+            tvaRate: Number(line.tvaRate),
+          })),
+        );
 
-      return ctx.prisma.invoice.create({
-        data: {
-          companyId: original.companyId,
-          clientId: original.clientId,
-          correctsInvoiceId: original.id,
-          status: "draft",
-          currency: original.currency,
-          totalExclTax: totals.totalExclTax,
-          totalTax: totals.totalTax,
-          totalInclTax: totals.totalInclTax,
-          lines: {
-            create: original.lines.map((line) => ({
-              productId: line.productId,
-              description: `Avoir - ${line.description}`,
-              quantity: -Number(line.quantity),
-              unitPrice: line.unitPrice,
-              tvaRate: line.tvaRate,
-              lineTotalExclTax: -Number(line.lineTotalExclTax),
-            })),
+        return tx.invoice.create({
+          data: {
+            companyId: original.companyId,
+            clientId: original.clientId,
+            correctsInvoiceId: original.id,
+            status: "draft",
+            currency: original.currency,
+            totalExclTax: totals.totalExclTax,
+            totalTax: totals.totalTax,
+            totalInclTax: totals.totalInclTax,
+            lines: {
+              create: original.lines.map((line) => ({
+                productId: line.productId,
+                description: `Avoir - ${line.description}`,
+                quantity: -Number(line.quantity),
+                unitPrice: line.unitPrice,
+                tvaRate: line.tvaRate,
+                lineTotalExclTax: -Number(line.lineTotalExclTax),
+              })),
+            },
+            statusHistory: {
+              create: { fromStatus: null, toStatus: "draft", actorUserId: ctx.userId },
+            },
           },
-          statusHistory: {
-            create: { fromStatus: null, toStatus: "draft", actorUserId: ctx.userId },
-          },
-        },
-        include: { lines: true },
+          include: { lines: true },
+        });
       });
     }),
 
@@ -348,21 +364,28 @@ export const invoiceRouter = router({
   generatePdf: protectedProcedure
     .input(z.object({ invoiceId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const invoice = await ctx.prisma.invoice.findUniqueOrThrow({
-        where: { id: input.invoiceId },
-        include: { lines: true, company: true, client: true },
-      });
-      assertCompanyAccess(ctx, invoice.companyId);
-      if (invoice.status === "draft" || !invoice.invoiceNumber || !invoice.issueDate) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Emettez la facture avant de generer le PDF.",
+      const { invoice, invoiceNumber, issueDate, version } = await ctx.withCompanyScope(async (tx) => {
+        const invoice = await tx.invoice.findUniqueOrThrow({
+          where: { id: input.invoiceId },
+          include: { lines: true, company: true, client: true },
         });
-      }
+        assertCompanyAccess(ctx, invoice.companyId);
+        if (invoice.status === "draft" || !invoice.invoiceNumber || !invoice.issueDate) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Emettez la facture avant de generer le PDF.",
+          });
+        }
+        const version =
+          (await tx.invoiceDocument.count({
+            where: { invoiceId: invoice.id, kind: "pdf" },
+          })) + 1;
+        return { invoice, invoiceNumber: invoice.invoiceNumber, issueDate: invoice.issueDate, version };
+      });
 
       const pdf = await generateInvoicePdf({
-        invoiceNumber: invoice.invoiceNumber,
-        issueDate: invoice.issueDate,
+        invoiceNumber,
+        issueDate,
         currency: invoice.currency,
         supplier: toPartyPayload(invoice.company),
         customer: toPartyPayload(invoice.client),
@@ -381,9 +404,6 @@ export const invoiceRouter = router({
         hash: invoice.hash ?? undefined,
       });
 
-      const version = (await ctx.prisma.invoiceDocument.count({
-        where: { invoiceId: invoice.id, kind: "pdf" },
-      })) + 1;
       const { storageKey, sha256 } = await uploadInvoiceDocument({
         companyId: invoice.companyId,
         invoiceId: invoice.id,
@@ -391,31 +411,41 @@ export const invoiceRouter = router({
         version,
         data: pdf,
       });
-      await ctx.prisma.invoiceDocument.create({
-        data: { invoiceId: invoice.id, kind: "pdf", storageKey, sha256, version },
-      });
 
-      return { filename: `${invoice.invoiceNumber}.pdf`, base64: pdf.toString("base64") };
+      await ctx.withCompanyScope((tx) =>
+        tx.invoiceDocument.create({
+          data: { invoiceId: invoice.id, kind: "pdf", storageKey, sha256, version },
+        }),
+      );
+
+      return { filename: `${invoiceNumber}.pdf`, base64: pdf.toString("base64") };
     }),
 
   generateUbl: protectedProcedure
     .input(z.object({ invoiceId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const invoice = await ctx.prisma.invoice.findUniqueOrThrow({
-        where: { id: input.invoiceId },
-        include: { lines: { include: { product: true } }, company: true, client: true },
-      });
-      assertCompanyAccess(ctx, invoice.companyId);
-      if (invoice.status === "draft" || !invoice.invoiceNumber || !invoice.issueDate) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Emettez la facture avant de generer le fichier UBL.",
+      const { invoice, invoiceNumber, issueDate, version } = await ctx.withCompanyScope(async (tx) => {
+        const invoice = await tx.invoice.findUniqueOrThrow({
+          where: { id: input.invoiceId },
+          include: { lines: { include: { product: true } }, company: true, client: true },
         });
-      }
+        assertCompanyAccess(ctx, invoice.companyId);
+        if (invoice.status === "draft" || !invoice.invoiceNumber || !invoice.issueDate) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Emettez la facture avant de generer le fichier UBL.",
+          });
+        }
+        const version =
+          (await tx.invoiceDocument.count({
+            where: { invoiceId: invoice.id, kind: "ubl_xml" },
+          })) + 1;
+        return { invoice, invoiceNumber: invoice.invoiceNumber, issueDate: invoice.issueDate, version };
+      });
 
       const xml = generateUblInvoiceXml({
-        invoiceNumber: invoice.invoiceNumber,
-        issueDate: invoice.issueDate,
+        invoiceNumber,
+        issueDate,
         currency: invoice.currency,
         supplier: toPartyPayload(invoice.company),
         customer: toPartyPayload(invoice.client),
@@ -434,9 +464,6 @@ export const invoiceRouter = router({
         },
       });
 
-      const version = (await ctx.prisma.invoiceDocument.count({
-        where: { invoiceId: invoice.id, kind: "ubl_xml" },
-      })) + 1;
       const { storageKey, sha256 } = await uploadInvoiceDocument({
         companyId: invoice.companyId,
         invoiceId: invoice.id,
@@ -444,11 +471,14 @@ export const invoiceRouter = router({
         version,
         data: Buffer.from(xml, "utf-8"),
       });
-      await ctx.prisma.invoiceDocument.create({
-        data: { invoiceId: invoice.id, kind: "ubl_xml", storageKey, sha256, version },
-      });
 
-      return { filename: `${invoice.invoiceNumber}.xml`, xml };
+      await ctx.withCompanyScope((tx) =>
+        tx.invoiceDocument.create({
+          data: { invoiceId: invoice.id, kind: "ubl_xml", storageKey, sha256, version },
+        }),
+      );
+
+      return { filename: `${invoiceNumber}.xml`, xml };
     }),
 
   /**
@@ -456,54 +486,60 @@ export const invoiceRouter = router({
    * DgiClearanceProvider the company's clearanceMode resolves to. The
    * intermediate "submitted" row is persisted before calling the provider so
    * a crash mid-call leaves an honest, resumable state rather than silently
-   * reverting to "issued".
+   * reverting to "issued". The provider call itself (real network I/O,
+   * ~7s against efact.ma's sandbox) runs outside any open transaction —
+   * see the withCompanyScope doc comment in context.ts.
    */
   submit: protectedProcedure
     .input(z.object({ invoiceId: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       assertCanWrite(ctx);
-      const invoice = await ctx.prisma.invoice.findUniqueOrThrow({
-        where: { id: input.invoiceId },
-        include: { lines: true, company: true, client: true },
-      });
-      assertCompanyAccess(ctx, invoice.companyId);
-      if (invoice.status !== "issued" || !invoice.invoiceNumber || !invoice.issueDate) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Seule une facture emise peut etre soumise a la DGI.",
+      const { invoice, ublInput, provider } = await ctx.withCompanyScope(async (tx) => {
+        const invoice = await tx.invoice.findUniqueOrThrow({
+          where: { id: input.invoiceId },
+          include: { lines: true, company: true, client: true },
         });
-      }
+        assertCompanyAccess(ctx, invoice.companyId);
+        if (invoice.status !== "issued" || !invoice.invoiceNumber || !invoice.issueDate) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Seule une facture emise peut etre soumise a la DGI.",
+          });
+        }
 
-      const provider = getClearanceProvider(invoice.company.clearanceMode);
+        const provider = getClearanceProvider(invoice.company.clearanceMode);
 
-      const ublInput: UblInvoiceInput = {
-        invoiceId: invoice.id,
-        invoiceNumber: invoice.invoiceNumber,
-        issueDate: invoice.issueDate.toISOString(),
-        currency: invoice.currency,
-        supplier: toPartyPayload(invoice.company),
-        customer: toPartyPayload(invoice.client),
-        lines: invoice.lines.map((line) => ({
-          description: line.description,
-          quantity: Number(line.quantity),
-          unitPrice: Number(line.unitPrice),
-          tvaRate: Number(line.tvaRate),
-        })),
-        totals: {
-          exclTax: Number(invoice.totalExclTax),
-          tax: Number(invoice.totalTax),
-          inclTax: Number(invoice.totalInclTax),
-        },
-      };
-
-      await ctx.prisma.invoice.update({
-        where: { id: invoice.id },
-        data: {
-          status: "submitted",
-          statusHistory: {
-            create: { fromStatus: "issued", toStatus: "submitted", actorUserId: ctx.userId },
+        const ublInput: UblInvoiceInput = {
+          invoiceId: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+          issueDate: invoice.issueDate.toISOString(),
+          currency: invoice.currency,
+          supplier: toPartyPayload(invoice.company),
+          customer: toPartyPayload(invoice.client),
+          lines: invoice.lines.map((line) => ({
+            description: line.description,
+            quantity: Number(line.quantity),
+            unitPrice: Number(line.unitPrice),
+            tvaRate: Number(line.tvaRate),
+          })),
+          totals: {
+            exclTax: Number(invoice.totalExclTax),
+            tax: Number(invoice.totalTax),
+            inclTax: Number(invoice.totalInclTax),
           },
-        },
+        };
+
+        await tx.invoice.update({
+          where: { id: invoice.id },
+          data: {
+            status: "submitted",
+            statusHistory: {
+              create: { fromStatus: "issued", toStatus: "submitted", actorUserId: ctx.userId },
+            },
+          },
+        });
+
+        return { invoice, ublInput, provider };
       });
 
       const result = await provider.submit(ublInput);
@@ -528,34 +564,36 @@ export const invoiceRouter = router({
         nextInvoiceStatus = null;
       }
 
-      await ctx.prisma.dgiSubmission.create({
-        data: {
-          invoiceId: invoice.id,
-          provider: provider.providerName,
-          status: submissionStatus,
-          requestPayload: ublInput as unknown as Prisma.InputJsonValue,
-          responsePayload: responsePayload as Prisma.InputJsonValue | undefined,
-          errorDetail,
-        },
-      });
-
-      // outcome === "error" leaves the invoice at "submitted" so it can be
-      // retried without re-issuing (issuing is one-shot: numbering + hash).
-      if (nextInvoiceStatus) {
-        await ctx.prisma.invoice.update({
-          where: { id: invoice.id },
+      return ctx.withCompanyScope(async (tx) => {
+        await tx.dgiSubmission.create({
           data: {
-            status: nextInvoiceStatus,
-            statusHistory: {
-              create: { fromStatus: "submitted", toStatus: nextInvoiceStatus, actorUserId: ctx.userId },
-            },
+            invoiceId: invoice.id,
+            provider: provider.providerName,
+            status: submissionStatus,
+            requestPayload: ublInput as unknown as Prisma.InputJsonValue,
+            responsePayload: responsePayload as Prisma.InputJsonValue | undefined,
+            errorDetail,
           },
         });
-      }
 
-      return ctx.prisma.invoice.findUniqueOrThrow({
-        where: { id: invoice.id },
-        include: { lines: true, dgiSubmissions: true },
+        // outcome === "error" leaves the invoice at "submitted" so it can be
+        // retried without re-issuing (issuing is one-shot: numbering + hash).
+        if (nextInvoiceStatus) {
+          await tx.invoice.update({
+            where: { id: invoice.id },
+            data: {
+              status: nextInvoiceStatus,
+              statusHistory: {
+                create: { fromStatus: "submitted", toStatus: nextInvoiceStatus, actorUserId: ctx.userId },
+              },
+            },
+          });
+        }
+
+        return tx.invoice.findUniqueOrThrow({
+          where: { id: invoice.id },
+          include: { lines: true, dgiSubmissions: true },
+        });
       });
     }),
 });

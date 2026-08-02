@@ -1,6 +1,6 @@
 import type { CreateFastifyContextOptions } from "@trpc/server/adapters/fastify";
 import { createClerkClient, verifyToken } from "@clerk/backend";
-import { prisma, type OrgRole } from "@app/db";
+import { prisma, type OrgRole, type Prisma } from "@app/db";
 
 const clerkClient = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
 
@@ -126,20 +126,55 @@ async function resolveAuthContext(authHeader: string | undefined): Promise<AuthC
 }
 
 /**
+ * Opens a short-lived interactive transaction, sets `app.current_company_ids`
+ * for it via `SET LOCAL` (through the `set_config` function so the value is
+ * bind-parameterized, never string-interpolated into SQL), and runs `fn`
+ * against that transaction's client. This is what makes the RLS policies in
+ * packages/db/prisma/rls.sql actually bite once the app connects as the
+ * non-owner `app_user` role (table owners bypass RLS entirely) — table owner
+ * `postgres`/direct connections ignore this and always see everything.
+ *
+ * Deliberately scoped narrowly around DB-only work, not wrapped around an
+ * entire request: Prisma's interactive transactions default to a 5s timeout
+ * and hold a pooled connection for their whole duration, and some mutations
+ * (DGI submission polling, outbound mail, Clerk API calls) take far longer
+ * than that. Callers doing both DB and external I/O in one procedure must
+ * call this once per DB-only segment, with the external calls outside it.
+ *
+ * `extraCompanyIds` covers the one case where a row's own id must be visible
+ * to itself before it exists in `companyIds` — creating a *new* Company.
+ * `companies` RLS policies allow the INSERT unconditionally (see rls.sql),
+ * but Prisma's `create()` always does `INSERT ... RETURNING`, and RETURNING
+ * is gated by the table's SELECT policy just like a normal read — so without
+ * pre-including the (client-generated) new id here, `.create()` would fail
+ * with "new row violates row-level security policy" despite the insert
+ * itself being allowed. Verified directly against app_user on the real DB.
+ */
+function withCompanyScope(companyIds: string[]) {
+  return async function runInCompanyScope<T>(
+    fn: (tx: Prisma.TransactionClient) => Promise<T>,
+    extraCompanyIds: string[] = [],
+  ): Promise<T> {
+    return prisma.$transaction(async (tx) => {
+      const ids = [...companyIds, ...extraCompanyIds].join(",");
+      await tx.$executeRaw`SELECT set_config('app.current_company_ids', ${ids}, true)`;
+      return fn(tx);
+    });
+  };
+}
+
+/**
  * `companyIds` is the set of company IDs the authenticated user may act on
  * within the currently-selected organization — computed from Membership
  * (owner/admin => all companies in the org) and CompanyAccess (everyone
  * else). Routers check membership in this array before touching a company's
- * data (application-layer scoping). The RLS policies in
- * packages/db/prisma/rls.sql are a *backstop* for this, keyed off a
- * `SET LOCAL app.current_company_ids` session variable — but they only bite
- * once the app connects as a dedicated non-owner `app_user` role (Postgres
- * table owners bypass RLS by default), which is Phase 6 hardening work, not
- * yet wired in.
+ * data (application-layer scoping). `withCompanyScope` (attached below as
+ * `ctx.withCompanyScope`) is the RLS backstop for this — see its doc comment
+ * for why it's a per-segment helper rather than a blanket per-request wrap.
  */
 export async function createContext({ req }: CreateFastifyContextOptions) {
   const auth = await resolveAuthContext(req.headers.authorization);
-  return { prisma, ...auth };
+  return { prisma, ...auth, withCompanyScope: withCompanyScope(auth.companyIds) };
 }
 
 export type Context = Awaited<ReturnType<typeof createContext>>;

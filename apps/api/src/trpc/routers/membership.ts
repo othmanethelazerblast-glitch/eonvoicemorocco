@@ -29,10 +29,14 @@ export const membershipRouter = router({
         where: { organizationId: ctx.organizationId },
         include: { user: { select: { id: true, clerkUserId: true, email: true } } },
       }),
-      ctx.prisma.company.findMany({
-        where: { organizationId: ctx.organizationId },
-        select: { id: true, name: true },
-      }),
+      // companies is RLS-protected (see rls.sql) — needs the scoped
+      // transaction unlike the other calls here, which touch non-RLS tables.
+      ctx.withCompanyScope((tx) =>
+        tx.company.findMany({
+          where: { organizationId: ctx.organizationId },
+          select: { id: true, name: true },
+        }),
+      ),
       ctx.prisma.companyAccess.findMany({
         where: { company: { organizationId: ctx.organizationId } },
         select: { userId: true, companyId: true },
@@ -93,7 +97,9 @@ export const membershipRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       assertIsOrgAdmin(ctx);
-      const company = await ctx.prisma.company.findUniqueOrThrow({ where: { id: input.companyId } });
+      const company = await ctx.withCompanyScope((tx) =>
+        tx.company.findUniqueOrThrow({ where: { id: input.companyId } }),
+      );
       if (company.organizationId !== ctx.organizationId) {
         throw new TRPCError({ code: "FORBIDDEN" });
       }

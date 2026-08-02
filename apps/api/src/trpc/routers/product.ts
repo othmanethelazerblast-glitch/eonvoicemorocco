@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { productInput } from "@app/shared-types";
-import { protectedProcedure, router } from "../trpc";
+import { companyScopedProcedure, router } from "../trpc";
 import { assertCanWrite, assertCompanyAccess } from "../access";
 
 export const productRouter = router({
-  listByCompany: protectedProcedure
+  listByCompany: companyScopedProcedure
     .input(z.object({ companyId: z.string().uuid() }))
     .query(({ ctx, input }) => {
       assertCompanyAccess(ctx, input.companyId);
@@ -14,7 +14,7 @@ export const productRouter = router({
       });
     }),
 
-  create: protectedProcedure.input(productInput).mutation(({ ctx, input }) => {
+  create: companyScopedProcedure.input(productInput).mutation(({ ctx, input }) => {
     assertCanWrite(ctx);
     assertCompanyAccess(ctx, input.companyId);
     return ctx.prisma.product.create({
@@ -28,7 +28,7 @@ export const productRouter = router({
     });
   }),
 
-  update: protectedProcedure
+  update: companyScopedProcedure
     .input(productInput.omit({ companyId: true }).partial().extend({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       assertCanWrite(ctx);
@@ -38,7 +38,7 @@ export const productRouter = router({
       return ctx.prisma.product.update({ where: { id }, data: rest });
     }),
 
-  delete: protectedProcedure.input(z.object({ id: z.string().uuid() })).mutation(async ({ ctx, input }) => {
+  delete: companyScopedProcedure.input(z.object({ id: z.string().uuid() })).mutation(async ({ ctx, input }) => {
     assertCanWrite(ctx);
     const existing = await ctx.prisma.product.findUniqueOrThrow({ where: { id: input.id } });
     assertCompanyAccess(ctx, existing.companyId);

@@ -125,22 +125,64 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
   generate` against a dummy `DATABASE_URL` — generate never needs a real
   connection, only migrate/studio do — then `pnpm -r typecheck`) is the real
   merge gate and needs zero secrets. A second `build` job runs `api`/`web`
-  builds but needs `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` /
-  `CLERK_SECRET_KEY` / `NEXT_PUBLIC_API_URL` added as GitHub Actions
-  secrets first (repo Settings > Secrets > Actions) — it'll fail until
-  those exist. **No deploy step yet** — `infra/` is still empty.
-- **RLS backstop**: `app_user` Postgres role created (grants applied,
-  DELETE revoked on legally-retained tables) and `rls.sql` policies are
-  live on the real DB — verified directly (app_user sees 0 rows with no
-  `app.current_company_ids` set, exactly the right row once set). Zero
-  effect on the running app so far since it still connects as the table
-  owner (bypasses RLS). **Not yet cut over**: switching `DATABASE_URL` to
-  `app_user` requires every Prisma call to run inside a per-request
-  transaction that does `SET LOCAL app.current_company_ids` first — a real
-  request-lifecycle change, not a config flip. Deliberately paused before
-  that step: an incompletely-wired path wouldn't error, it'd silently
-  return empty results in prod. App-layer scoping (`assertCompanyAccess`)
-  remains the actual enforcement until this is finished.
+  builds and needs `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` / `CLERK_SECRET_KEY` /
+  `NEXT_PUBLIC_API_URL` as GitHub Actions secrets — **set 2026-08-02**
+  (Clerk keys pulled from `apps/api/.env` / `apps/mobile/.env`;
+  `NEXT_PUBLIC_API_URL` is a `http://localhost:4000` placeholder since
+  nothing's deployed yet — update it once a real API URL exists). Not yet
+  confirmed green end-to-end since the workflow only triggers on
+  push/pull_request (no `workflow_dispatch`) — will validate on the next
+  real push. **No deploy step yet** — `infra/` is still empty.
+- **RLS backstop**: cut over and live (2026-08-02). `apps/api/.env`
+  `DATABASE_URL` now connects as `app_user` (RLS-enforced); `DIRECT_URL`
+  deliberately stays on the table-owner (`postgres`) connection — it's what
+  Prisma migrations use for DDL, and `app_user` has no schema-modification
+  grants, only DML. Every Prisma call that touches an RLS-protected table
+  (companies, clients, products, invoices, invoice_lines, invoice_documents,
+  invoice_status_history, dgi_submissions) now goes through
+  `ctx.withCompanyScope` (`apps/api/src/trpc/context.ts`), which opens a
+  short interactive transaction and does `SELECT set_config('app.current_company_ids', ..., true)`
+  before running the query — this is what actually makes the `rls.sql`
+  policies bite (table owners bypass RLS entirely; app_user does not).
+  Two procedure patterns: `companyScopedProcedure` (`apps/api/src/trpc/trpc.ts`)
+  for routers where every procedure only touches RLS tables with no
+  external I/O in between (`client.ts`, `product.ts`, `company.ts`,
+  `organization.ts` — swaps `ctx.prisma` transparently via middleware, no
+  resolver body changes needed); `ctx.withCompanyScope(fn)` called directly
+  for routers that mix RLS-table access with non-RLS tables or external
+  calls (`membership.ts`, `prospectInvite.ts`'s `approve`, all of
+  `invoice.ts`). Deliberately **not** one transaction per request — Prisma's
+  interactive transactions default to a 5s timeout and hold a pooled
+  connection for their duration, and `invoice.submit`'s DGI polling alone
+  takes ~7s against efact.ma's sandbox — so `invoice.ts`'s mutations split
+  into separate scoped blocks around each external call (DGI submit, PDF/UBL
+  storage upload), never holding a transaction open across one.
+  One real bug caught and fixed along the way: `companies`' original single
+  RLS policy defaulted `WITH CHECK` to the same scoped `USING` expression,
+  which made company creation impossible — a brand-new row's own id can
+  never already be in `current_company_ids` (it doesn't exist yet). Fixed
+  by splitting into separate per-command policies with `company_insert`
+  permissive (`WITH CHECK (true)`; creation auth is already fully enforced
+  app-side via `assertCanWrite` + a server-derived `organizationId`, RLS's
+  job there is only to gate reads/writes of *existing* companies). Even
+  with that fix, `INSERT ... RETURNING` (which Prisma's `.create()` always
+  uses) is *also* gated by the SELECT policy — so `company.create` and
+  `prospectInvite.approve` generate the new company's id app-side
+  (`randomUUID()`, not Prisma's `@default(uuid())`) and pass it as
+  `withCompanyScope`'s `extraCompanyIds` so the row is visible to itself
+  within that same transaction. Child tables (clients, products, invoices,
+  ...) don't have this problem — their policies key off an existing
+  `companyId` FK, not their own PK. All of this was verified twice: once
+  with raw SQL directly against `app_user` on the live DB (fail-closed with
+  no context, correct isolation with/without matching scope, the INSERT/
+  RETURNING failure and fix), and once through the actual Prisma-mediated
+  code path (a throwaway script exercising `withCompanyScope` exactly as
+  the routers do — company create, scoped read, cross-scope isolation,
+  client create, nested invoice+lines create — all passed before cutover).
+  App-layer scoping (`assertCompanyAccess`) is unchanged and remains the
+  primary enforcement; RLS is the backstop it always was meant to be.
+  A `.env.bak-before-rls-cutover` sits next to `apps/api/.env` — safe to
+  delete once the cutover's been running fine for a while.
 
 ## Environment / running locally
 
@@ -170,13 +212,10 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
 
 ## Next candidate work (not started)
 
-- Finish the RLS cutover: wrap request handling so `ctx.prisma` runs inside
-  a per-request transaction with `SET LOCAL app.current_company_ids` set
-  first, then switch `DATABASE_URL`/`DIRECT_URL` to `app_user`. Explicitly
-  paused pending a deliberate go/no-go, not a "todo" — see the gaps section
-  above for why.
-- Add the three Clerk/API secrets to GitHub Actions so the CI `build` job
-  actually passes (currently only `typecheck` is guaranteed green).
 - Deploy step/target (`infra/` is empty) — CI only verifies, doesn't ship.
+  Needs a platform decision (Vercel/Railway/Fly/other) plus real account +
+  API token on whichever is chosen before any infra work can start.
 - Real Resend account/API key/verified domain to actually send the mail
   that `ResendMailProvider` is already wired up to send.
+- Delete `apps/api/.env.bak-before-rls-cutover` once the RLS cutover has
+  been running fine for a while (rollback safety net, see above).

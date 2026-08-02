@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { ConsoleMailProvider, ResendMailProvider, type MailProvider } from "@app/mailer";
@@ -111,9 +112,14 @@ export const prospectInviteRouter = router({
     // when it was submitted and when it's approved.
     const data = companyInput.parse(invite.submittedData);
 
-    return ctx.prisma.$transaction(async (tx) => {
+    // id generated app-side (not left to Prisma's @default(uuid())) so it
+    // can be passed as extraCompanyIds — see the matching comment in
+    // company.ts create for why company creation needs this.
+    const newCompanyId = randomUUID();
+    return ctx.withCompanyScope(async (tx) => {
       const company = await tx.company.create({
         data: {
+          id: newCompanyId,
           organizationId: ctx.organizationId,
           name: data.name,
           ice: data.identifiers.ice,
@@ -136,7 +142,7 @@ export const prospectInviteRouter = router({
         data: { status: "approved", reviewedAt: new Date(), approvedCompanyId: company.id },
       });
       return company;
-    });
+    }, [newCompanyId]);
   }),
 
   // --- Public procedures: reachable by an unauthenticated prospect who only
