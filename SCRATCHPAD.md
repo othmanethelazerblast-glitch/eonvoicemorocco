@@ -228,6 +228,19 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
   Clerk secret, EFACT_SECRET_KEY, MAIL_PROVIDER, etc.) entered in its
   dashboard. `NEXT_PUBLIC_API_URL` (currently a localhost placeholder in
   CI secrets) needs updating to the real Railway API URL once that's live.
+  **Vercel build gotcha hit 2026-09-04**: `apps/web` → `@app/api-client` →
+  `@app/api` → `@app/db` is a real dependency chain (tRPC needs `apps/api`'s
+  router type for end-to-end type safety), so Turbo correctly builds that
+  whole chain even though Root Directory is `apps/web` — this is not a
+  mis-scoping bug. It broke because Vercel's default Install Command
+  doesn't run `pnpm db:generate` first (CI always does, with a dummy
+  `DATABASE_URL` — generate never connects to a real DB, only `migrate`
+  does), so `@app/db`'s generated enum exports didn't exist yet. Fixed by
+  overriding Vercel's **Install Command** to
+  `cd ../.. && pnpm install --frozen-lockfile && pnpm db:generate`, plus
+  setting dummy `DATABASE_URL`/`DIRECT_URL` and real
+  `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`/`CLERK_SECRET_KEY`/
+  `NEXT_PUBLIC_API_URL` as Vercel env vars (same set CI's build job uses).
 - Real Resend account/API key/verified domain to actually send the mail
   that `ResendMailProvider` is already wired up to send.
 
