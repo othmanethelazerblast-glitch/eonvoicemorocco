@@ -132,7 +132,10 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
   nothing's deployed yet — update it once a real API URL exists). Not yet
   confirmed green end-to-end since the workflow only triggers on
   push/pull_request (no `workflow_dispatch`) — will validate on the next
-  real push. **No deploy step yet** — `infra/` is still empty.
+  real push. **No deploy step yet** — `infra/` is still empty. **`gh` CLI
+  auth is currently dead** (found 2026-09-04, `gh run list` → `401 Bad
+  credentials`) — can't check run status until re-authenticated
+  (`gh auth login`).
 - **RLS backstop**: cut over and live (2026-08-02). `apps/api/.env`
   `DATABASE_URL` now connects as `app_user` (RLS-enforced); `DIRECT_URL`
   deliberately stays on the table-owner (`postgres`) connection — it's what
@@ -181,8 +184,8 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
   client create, nested invoice+lines create — all passed before cutover).
   App-layer scoping (`assertCompanyAccess`) is unchanged and remains the
   primary enforcement; RLS is the backstop it always was meant to be.
-  A `.env.bak-before-rls-cutover` sits next to `apps/api/.env` — safe to
-  delete once the cutover's been running fine for a while.
+  The pre-cutover `.env.bak-before-rls-cutover` rollback file was deleted
+  2026-09-04 after a month of stable running.
 
 ## Environment / running locally
 
@@ -217,8 +220,6 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
   API token on whichever is chosen before any infra work can start.
 - Real Resend account/API key/verified domain to actually send the mail
   that `ResendMailProvider` is already wired up to send.
-- Delete `apps/api/.env.bak-before-rls-cutover` once the RLS cutover has
-  been running fine for a while (rollback safety net, see above).
 - Rotate/revoke the classic GitHub PAT used on 2026-08-02 to set the CI
   secrets — it carried far broader scopes than needed (`admin:org`,
   `admin:enterprise`, `delete:packages`, etc.) and was pasted directly into
