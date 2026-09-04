@@ -131,11 +131,9 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
   `NEXT_PUBLIC_API_URL` is a `http://localhost:4000` placeholder since
   nothing's deployed yet — update it once a real API URL exists). Not yet
   confirmed green end-to-end since the workflow only triggers on
-  push/pull_request (no `workflow_dispatch`) — will validate on the next
-  real push. **No deploy step yet** — `infra/` is still empty. **`gh` CLI
-  auth is currently dead** (found 2026-09-04, `gh run list` → `401 Bad
-  credentials`) — can't check run status until re-authenticated
-  (`gh auth login`).
+  push/pull_request (no `workflow_dispatch`). **Confirmed green**
+  end-to-end as of 2026-09-04 (the 2026-08-02 RLS-cutover push passed,
+  2m49s). **No deploy step yet** — `infra/` is still empty.
 - **RLS backstop**: cut over and live (2026-08-02). `apps/api/.env`
   `DATABASE_URL` now connects as `app_user` (RLS-enforced); `DIRECT_URL`
   deliberately stays on the table-owner (`postgres`) connection — it's what
@@ -220,9 +218,15 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
   API token on whichever is chosen before any infra work can start.
 - Real Resend account/API key/verified domain to actually send the mail
   that `ResendMailProvider` is already wired up to send.
-- Rotate/revoke the classic GitHub PAT used on 2026-08-02 to set the CI
-  secrets — it carried far broader scopes than needed (`admin:org`,
-  `admin:enterprise`, `delete:packages`, etc.) and was pasted directly into
-  a chat session, so it should be considered exposed. Not urgent (nothing
-  is actively wrong), but don't leave it standing indefinitely — rotate at
-  github.com/settings/tokens.
+
+## Resolved (2026-09-04)
+
+- `gh`/git auth was dead (401 on API calls, push failing). Two
+  fine-grained PATs pasted into chat both hit `403 Resource not accessible
+  by personal access token` — Contents permission wasn't actually granted
+  despite attempts to fix it in the GitHub UI. Switched to `gh auth login`
+  browser OAuth flow instead (`repo`+`workflow` scopes), which fixed it
+  cleanly — no token ever needs to touch a chat session again for this.
+  All three exposed tokens (the original broad classic PAT from
+  2026-08-02, plus the two fine-grained ones from today) have been
+  revoked/deleted.
