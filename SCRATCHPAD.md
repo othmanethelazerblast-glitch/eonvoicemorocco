@@ -219,3 +219,9 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
   that `ResendMailProvider` is already wired up to send.
 - Delete `apps/api/.env.bak-before-rls-cutover` once the RLS cutover has
   been running fine for a while (rollback safety net, see above).
+- Rotate/revoke the classic GitHub PAT used on 2026-08-02 to set the CI
+  secrets — it carried far broader scopes than needed (`admin:org`,
+  `admin:enterprise`, `delete:packages`, etc.) and was pasted directly into
+  a chat session, so it should be considered exposed. Not urgent (nothing
+  is actively wrong), but don't leave it standing indefinitely — rotate at
+  github.com/settings/tokens.
