@@ -213,21 +213,36 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
 
 ## Next candidate work (not started)
 
-- **Deploy decision made (2026-09-04): Vercel for `apps/web`, Railway for
+- **Deploy decision made (2026-09-04): Vercel for `apps/web`, Northflank for
   `apps/api`.** Web is stock Next.js (`next build`/`next start`) — Vercel's
-  the native fit. API is a long-running Fastify process (`fastify.listen`),
-  not serverless-shaped, so Railway's plain Node-service model fits better
-  than forcing it into Vercel functions. Postgres stays on Supabase either
-  way — neither platform needs to provision a DB, just env vars. `infra/`
-  is still empty — blocked on real accounts on both platforms (can't be
-  done without user creating them + connecting the GitHub repo + setting
-  env vars in each dashboard). Once accounts exist: Vercel needs Root
-  Directory = `apps/web` (monorepo pnpm/turbo autodetected) + the same
-  Clerk/API env vars already used in CI's build job; Railway needs Root
-  Directory = `apps/api` + `apps/api/.env`'s vars (DATABASE_URL, DIRECT_URL,
-  Clerk secret, EFACT_SECRET_KEY, MAIL_PROVIDER, etc.) entered in its
-  dashboard. `NEXT_PUBLIC_API_URL` (currently a localhost placeholder in
-  CI secrets) needs updating to the real Railway API URL once that's live.
+  the native fit, free Hobby tier (non-commercial only per ToS — expect
+  Pro, ~$20/mo, once there are real paying clients). API is a long-running
+  Fastify process (`fastify.listen`), not serverless-shaped, so it needs a
+  plain always-on Node-service host rather than Vercel functions.
+  Originally picked Railway for that reason, then Render (free, but sleeps
+  after 15min idle — cold starts), then switched to **Northflank**: also
+  free forever ("Sandbox" tier) but genuinely **always-on with no
+  sleep/cold-start**, deploys straight from GitHub, 2 free services + 1
+  free database — better fit than Render at the same $0 cost. Caveat
+  accepted knowingly: Northflank is a smaller/newer platform than
+  Render/Railway, worth watching in case free-tier terms shift later (as
+  just happened to Koyeb, acquired by Mistral AI in 2026 and closed to new
+  free signups). Postgres stays on Supabase either way — neither platform
+  needs to provision a DB, just env vars. `infra/` is still empty —
+  blocked on real accounts on both platforms (needs the user to create
+  them + connect the GitHub repo + set env vars in each dashboard). Once
+  accounts exist: Vercel needs Root Directory = `apps/web` (monorepo
+  pnpm/turbo autodetected — see the build gotcha note above: Install
+  Command must be overridden to
+  `cd ../.. && pnpm install --frozen-lockfile && pnpm db:generate`) + the
+  same Clerk/API env vars already used in CI's build job (done 2026-09-04);
+  Northflank needs Root Directory = `apps/api` + the same
+  install-then-generate step + `apps/api/.env`'s vars (DATABASE_URL,
+  DIRECT_URL, Clerk secret, EFACT_SECRET_KEY, MAIL_PROVIDER, etc.) entered
+  in its dashboard, plus a Start Command of `pnpm --filter api start`
+  (after `pnpm --filter api build`). `NEXT_PUBLIC_API_URL` (currently a
+  localhost placeholder in Vercel/CI) needs updating to the real Northflank
+  API URL once that's live.
   **Vercel build gotcha hit 2026-09-04**: `apps/web` → `@app/api-client` →
   `@app/api` → `@app/db` is a real dependency chain (tRPC needs `apps/api`'s
   router type for end-to-end type safety), so Turbo correctly builds that
