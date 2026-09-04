@@ -4,6 +4,36 @@ Running notes on where this project stands, so picking it back up doesn't mean
 re-deriving context from scratch. Update this when you finish a chunk of work;
 prune stale entries rather than letting it grow forever.
 
+## Session in progress (2026-09-04) — pick up here next time
+
+Mid-deploy setup, stopped partway through. Exact state:
+
+- **Vercel (`apps/web`)**: project created, 5 env vars added in its
+  dashboard (`NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY`,
+  `DATABASE_URL`/`DIRECT_URL` as CI-style dummy values — only
+  `prisma generate` needs these *defined*, not reachable —
+  `NEXT_PUBLIC_API_URL` as a localhost placeholder). Told the user to also
+  override **Install Command** to
+  `cd ../.. && pnpm install --frozen-lockfile && pnpm db:generate` (Root
+  Directory is already `apps/web`) and redeploy — **not yet confirmed
+  whether that was done or whether the redeploy passed**. If picking this
+  back up: ask for the latest deploy log tail first.
+- **Northflank (`apps/api`)**: fully decided (see "Next candidate work"
+  below for the why), but **account not created yet, nothing configured**.
+  Exact steps already given to the user: sign up free, new service from
+  the GitHub repo, Root Directory `apps/api`, Build Command
+  `cd ../.. && pnpm install --frozen-lockfile && pnpm db:generate && pnpm --filter api build`,
+  Start Command `pnpm --filter api start`, Port `4000` (reads
+  `API_PORT` env var if set, defaults to 4000). Env vars needed there are
+  the **real** values from `apps/api/.env` (unlike Vercel's dummy
+  DB values, Northflank's API process actually connects) — DATABASE_URL,
+  DIRECT_URL, CLERK_SECRET_KEY, EFACT_SECRET_KEY,
+  DGI_CLEARANCE_PROVIDER=efact, MAIL_PROVIDER/RESEND_API_KEY/MAIL_FROM if
+  set, WEB_APP_URL (should point at the Vercel URL once known), API_PORT.
+- **Once Northflank gives a live URL**: update `NEXT_PUBLIC_API_URL` in
+  Vercel's env vars to that real URL (currently still the localhost
+  placeholder) and redeploy web again.
+
 ## Product
 
 Morocco e-invoicing SaaS. Primary users are **comptables / financial advisors**
