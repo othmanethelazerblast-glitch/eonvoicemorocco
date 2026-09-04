@@ -213,9 +213,21 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
 
 ## Next candidate work (not started)
 
-- Deploy step/target (`infra/` is empty) — CI only verifies, doesn't ship.
-  Needs a platform decision (Vercel/Railway/Fly/other) plus real account +
-  API token on whichever is chosen before any infra work can start.
+- **Deploy decision made (2026-09-04): Vercel for `apps/web`, Railway for
+  `apps/api`.** Web is stock Next.js (`next build`/`next start`) — Vercel's
+  the native fit. API is a long-running Fastify process (`fastify.listen`),
+  not serverless-shaped, so Railway's plain Node-service model fits better
+  than forcing it into Vercel functions. Postgres stays on Supabase either
+  way — neither platform needs to provision a DB, just env vars. `infra/`
+  is still empty — blocked on real accounts on both platforms (can't be
+  done without user creating them + connecting the GitHub repo + setting
+  env vars in each dashboard). Once accounts exist: Vercel needs Root
+  Directory = `apps/web` (monorepo pnpm/turbo autodetected) + the same
+  Clerk/API env vars already used in CI's build job; Railway needs Root
+  Directory = `apps/api` + `apps/api/.env`'s vars (DATABASE_URL, DIRECT_URL,
+  Clerk secret, EFACT_SECRET_KEY, MAIL_PROVIDER, etc.) entered in its
+  dashboard. `NEXT_PUBLIC_API_URL` (currently a localhost placeholder in
+  CI secrets) needs updating to the real Railway API URL once that's live.
 - Real Resend account/API key/verified domain to actually send the mail
   that `ResendMailProvider` is already wired up to send.
 
