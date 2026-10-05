@@ -47,6 +47,7 @@ async function resolveAuthContext(authHeader: string | undefined): Promise<AuthC
 
   const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : undefined;
   if (!token || !process.env.CLERK_SECRET_KEY) {
+    console.warn(`auth: no ${!token ? "bearer token" : "CLERK_SECRET_KEY"}`);
     return empty;
   }
 
@@ -55,7 +56,8 @@ async function resolveAuthContext(authHeader: string | undefined): Promise<AuthC
     claims = (await verifyToken(token, {
       secretKey: process.env.CLERK_SECRET_KEY,
     })) as ClerkSessionClaims;
-  } catch {
+  } catch (err) {
+    console.warn("auth: verifyToken failed:", err instanceof Error ? err.message : err);
     return empty;
   }
 
@@ -75,6 +77,7 @@ async function resolveAuthContext(authHeader: string | undefined): Promise<AuthC
 
   if (!clerkOrgId) {
     // Signed in but no active organization selected/created yet.
+    console.warn("auth: valid token but no active organization");
     return { userId: user.id, organizationId: null, companyIds: [], role: null };
   }
 
