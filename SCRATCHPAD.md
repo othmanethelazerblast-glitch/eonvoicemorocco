@@ -300,3 +300,11 @@ Repo: https://github.com/othmanethelazerblast-glitch/eonvoicemorocco.git
   All three exposed tokens (the original broad classic PAT from
   2026-08-02, plus the two fine-grained ones from today) have been
   revoked/deleted.
+
+## API hosting (2026-10-05)
+
+Added root `Dockerfile` + `.dockerignore` so `apps/api` deploys on any free
+container host. API reads `PORT` (falls back to `API_PORT`, then 4000). It
+runs via `tsx` because workspace packages are TS source. Config comes from
+host env vars (no `.env` file in the image). Docker build not run in the
+sandbox (no daemon); the same steps were verified natively.

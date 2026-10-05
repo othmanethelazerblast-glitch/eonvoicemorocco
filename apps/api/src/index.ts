@@ -1,6 +1,6 @@
 import { buildServer } from "./server";
 
-const PORT = Number(process.env.API_PORT ?? 4000);
+const PORT = Number(process.env.PORT ?? process.env.API_PORT ?? 4000);
 
 const app = buildServer();
 
