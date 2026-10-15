@@ -22,10 +22,9 @@ Series: Hamid, fripier de Derb Ghallef. Tone: comédie sociale + mystère. Hook 
 ## Voix
 `python3 make_voice.py` (internet requis) → `out/ep1_vo_track.mp3`, 60s, chaque réplique placée à son timecode. Voix ar-MA: Jamal (Hamid, Yahya, père) et Mouna (Salma, dame, Mi Zhor), avec rate/pitch différents. Texte en écriture arabe dans `lines.json` (meilleure prononciation); ajuste `start` ou `text` si le rythme ne colle pas.
 
-## Build complet (sur ta machine WSL)
-```
-pip install edge-tts
-python3 make_voice.py        # voix Darija -> out/ep1_vo_track.mp3
-python3 build_animatic.py    # animatic 1080x1920 + sous-titres + voix -> out/ep1_animatic.mp4
-```
-(`ffmpeg` requis.) L'animatic = cartes de scene colorees, a remplacer par tes vraies images/videos.
+## Production files (ep01/)
+- `characters.md` references + TAGs · `shots.md` clip prompts · `voice_lines.md` recording sheet
+- `ep01.srt` subtitles · `edit_guide.md` CapCut assembly
+- Drop generated clips in `clips/` (`1A.mp4` ... `7B.mp4`) and your recordings in `voice/` (`hamid.m4a`, `yahya.m4a`, `lady.m4a`, `salma.m4a`, `mizhor.m4a`, `father.m4a`)
+- `python3 build_animatic.py` -> `out/ep01_rough.mp4` (needs ffmpeg; placeholders fill missing clips)
+- `python3 make_voice.py` (optional, needs `pip install edge-tts` + internet): TTS timing guide only
