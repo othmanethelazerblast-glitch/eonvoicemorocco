@@ -21,3 +21,11 @@ Series: Hamid, fripier de Derb Ghallef. Tone: comédie sociale + mystère. Hook 
 
 ## Voix
 `python3 make_voice.py` (internet requis) → `out/ep1_vo_track.mp3`, 60s, chaque réplique placée à son timecode. Voix ar-MA: Jamal (Hamid, Yahya, père) et Mouna (Salma, dame, Mi Zhor), avec rate/pitch différents. Texte en écriture arabe dans `lines.json` (meilleure prononciation); ajuste `start` ou `text` si le rythme ne colle pas.
+
+## Build complet (sur ta machine WSL)
+```
+pip install edge-tts
+python3 make_voice.py        # voix Darija -> out/ep1_vo_track.mp3
+python3 build_animatic.py    # animatic 1080x1920 + sous-titres + voix -> out/ep1_animatic.mp4
+```
+(`ffmpeg` requis.) L'animatic = cartes de scene colorees, a remplacer par tes vraies images/videos.

@@ -1,24 +1,120 @@
 {
   "voices": {
-    "hamid":  {"voice": "ar-MA-JamalNeural", "rate": "-5%",  "pitch": "-4Hz"},
-    "yahya":  {"voice": "ar-MA-JamalNeural", "rate": "+12%", "pitch": "+6Hz"},
-    "lady":   {"voice": "ar-MA-MounaNeural", "rate": "+0%",  "pitch": "-2Hz"},
-    "salma":  {"voice": "ar-MA-MounaNeural", "rate": "+10%", "pitch": "+8Hz"},
-    "mizhor": {"voice": "ar-MA-MounaNeural", "rate": "-10%", "pitch": "-8Hz"},
-    "father": {"voice": "ar-MA-JamalNeural", "rate": "-18%", "pitch": "-10Hz"}
+    "hamid": {
+      "voice": "ar-MA-JamalNeural",
+      "rate": "-5%",
+      "pitch": "-4Hz"
+    },
+    "yahya": {
+      "voice": "ar-MA-JamalNeural",
+      "rate": "+12%",
+      "pitch": "+6Hz"
+    },
+    "lady": {
+      "voice": "ar-MA-MounaNeural",
+      "rate": "+0%",
+      "pitch": "-2Hz"
+    },
+    "salma": {
+      "voice": "ar-MA-MounaNeural",
+      "rate": "+10%",
+      "pitch": "+8Hz"
+    },
+    "mizhor": {
+      "voice": "ar-MA-MounaNeural",
+      "rate": "-10%",
+      "pitch": "-8Hz"
+    },
+    "father": {
+      "voice": "ar-MA-JamalNeural",
+      "rate": "-18%",
+      "pitch": "-10Hz"
+    }
   },
   "lines": [
-    {"id": "01_salma",  "start": 1.2,  "who": "salma",  "latin": "HAMID!",                                   "text": "حَمِيييد!"},
-    {"id": "02_vo",     "start": 3.8,  "who": "hamid",  "latin": "F Derb Ghallef, kolchi kaytbi3... 7ta nass.", "text": "فدرب غلف، كلشي كيتباع... حتى الناس."},
-    {"id": "03_yahya",  "start": 10.4, "who": "yahya",  "latin": "A Hamid! Lqit Gucci! Nbi3oha b 2000, nchriw triporteur, n7ello magasin f Maarif...", "text": "آ حميد! لقيت غوتشي! نبيعوها بألفين، نشريو تريبورتور، نحلو ماغازان فالمعاريف..."},
-    {"id": "04_hamid",  "start": 15.6, "who": "hamid",  "latin": "Skout chwiya, derti liya tiyara.",         "text": "سكوت شوية، درتي ليا طيارة."},
-    {"id": "05_label",  "start": 18.0, "who": "hamid",  "latin": "Guci.",                                    "text": "غوسي."},
-    {"id": "06_lady",   "start": 20.6, "who": "lady",   "latin": "Ra fripe hadi!",                           "text": "راه فريب هادي!"},
-    {"id": "07_hamid",  "start": 24.0, "who": "hamid",  "latin": "Fripe, ah. Walakin chouf, cuir pleine fleur, o lkhiyata b lyed. Hadi ma kat9dem ch a lalla.", "text": "فريب، آه. ولكن شوف، كوير بلين فلور، والخياطة بيد. هادي ما كتقدمش آ للا."},
-    {"id": "08_yahya",  "start": 31.5, "who": "yahya",  "latin": "Ma kat9dem ch hiya... walakin ana jo3t!",  "text": "ما كتقدمش هي... ولكن أنا جوعت!"},
-    {"id": "09_yahya",  "start": 37.0, "who": "yahya",  "latin": "Khassek t investi a Hamid, crypto, dropshipping...", "text": "خاصك تنفيستي آ حميد، كريبتو، دروبشيبينغ..."},
-    {"id": "10_mizhor", "start": 41.5, "who": "mizhor", "latin": "Lkhokh ila kan dwa, kon dawa rasso.",      "text": "الخوخ إلا كان دوا، كون داوا راسو."},
-    {"id": "11_father", "start": 48.0, "who": "father", "latin": "Ila ma3ndekch lflous... khlli 3ndek lwjeh.", "text": "إلا ماعندكش الفلوس... خلّي عندك الوجه."},
-    {"id": "12_yahya",  "start": 55.5, "who": "yahya",  "latin": "Hadi... bent Mansouri?!",                  "text": "هادي... بنت المنصوري؟!"}
+    {
+      "id": "01_salma",
+      "start": 1.2,
+      "who": "salma",
+      "latin": "HAMID!",
+      "text": "حَمِيييد!"
+    },
+    {
+      "id": "02_vo",
+      "start": 3.8,
+      "who": "hamid",
+      "latin": "F Derb Ghallef, kolchi kaytbi3... 7ta nass.",
+      "text": "فدرب غلف، كلشي كيتباع... حتى الناس."
+    },
+    {
+      "id": "03_yahya",
+      "start": 10.4,
+      "who": "yahya",
+      "latin": "A Hamid! Lqit Gucci! Nbi3oha b 2000, nchriw triporteur, n7ello magasin f Maarif...",
+      "text": "آ حميد! لقيت غوتشي! نبيعوها بألفين، نشريو تريبورتور، نحلو ماغازان فالمعاريف..."
+    },
+    {
+      "id": "04_hamid",
+      "start": 15.6,
+      "who": "hamid",
+      "latin": "Skout chwiya, derti liya tiyara.",
+      "text": "سكوت شوية، درتي ليا طيارة."
+    },
+    {
+      "id": "05_label",
+      "start": 18.0,
+      "who": "hamid",
+      "latin": "Guci.",
+      "text": "غوسي."
+    },
+    {
+      "id": "06_lady",
+      "start": 20.6,
+      "who": "lady",
+      "latin": "Ra fripe hadi!",
+      "text": "راه فريب هادي!"
+    },
+    {
+      "id": "07_hamid",
+      "start": 24.0,
+      "who": "hamid",
+      "latin": "Fripe, ah. Walakin chouf, cuir pleine fleur, o lkhiyata b lyed. Hadi ma kat9dem ch a lalla.",
+      "text": "فريب، آه. ولكن شوف، كوير بلين فلور، والخياطة بيد. هادي ما كتقدمش آ للا."
+    },
+    {
+      "id": "08_yahya",
+      "start": 31.5,
+      "who": "yahya",
+      "latin": "Ma kat9dem ch hiya... walakin ana jo3t!",
+      "text": "ما كتقدمش هي... ولكن أنا جوعت!"
+    },
+    {
+      "id": "09_yahya",
+      "start": 37.0,
+      "who": "yahya",
+      "latin": "Khassek t investi a Hamid, crypto, dropshipping...",
+      "text": "خاصك تستثمر آ حميد، كريبتو، دروبشيبينغ..."
+    },
+    {
+      "id": "10_mizhor",
+      "start": 41.5,
+      "who": "mizhor",
+      "latin": "Lkhokh ila kan dwa, kon dawa rasso.",
+      "text": "الخوخ إلا كان دوا، كون داوا راسو."
+    },
+    {
+      "id": "11_father",
+      "start": 48.0,
+      "who": "father",
+      "latin": "Ila ma3ndekch lflous... khlli 3ndek lwjeh.",
+      "text": "إلا ماعندكش الفلوس... خلّي عندك الوجه."
+    },
+    {
+      "id": "12_yahya",
+      "start": 55.5,
+      "who": "yahya",
+      "latin": "Hadi... bent Mansouri?!",
+      "text": "هادي... بنت المنصوري؟!"
+    }
   ]
 }
